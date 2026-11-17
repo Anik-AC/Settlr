@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import { authRouter, requireAuth, requirePasswordSet } from './auth.js';
 import { api } from './api.js';
 import { receiptsRouter } from './receipts.js';
+import { mcpRouter } from './mcp.js';
 import { HttpError } from './expenses.js';
 import { dbReady } from './db.js';
 
@@ -52,6 +53,8 @@ export function createApp() {
   // Bill photos are bigger than normal JSON bodies, so this route parses its own body.
   // (Vercel caps request bodies at 4.5 MB; the client keeps photos under that.)
   app.use('/api/receipts', requireAuth, requirePasswordSet, jsonBody('4.5mb'), receiptsRouter);
+  // AI assistants (Claude etc.) connect here with a personal API key: Authorization: Bearer stl_…
+  app.use('/api/mcp', requireAuth, requirePasswordSet, jsonBody('1mb'), mcpRouter);
   app.use(jsonBody('200kb'));
   app.use('/api/auth', authRouter);
   app.use('/api', requireAuth, requirePasswordSet, api);

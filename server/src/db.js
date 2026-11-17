@@ -39,16 +39,24 @@ if (remoteUrl) {
 
 // NaN/Infinity (e.g. a bad id in a URL) bind as NULL, so lookups just find nothing (-> 404).
 const clean = (v) => (typeof v === 'number' && !Number.isFinite(v) ? null : v === undefined ? null : v);
-const toArgs = (args) =>
-  args.length === 1 && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])
-    ? Object.fromEntries(Object.entries(args[0]).map(([k, v]) => [k, clean(v)]))
-    : args.map(clean);
+/**
+ * Named args: send only the names the SQL actually uses. Turso (remote libSQL)
+ * rejects extra named values ("Number of arguments mismatch"), while a local file
+ * database ignores them — which once broke every expense edit in production.
+ */
+function toArgs(sql, args) {
+  if (args.length === 1 && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+    const used = new Set([...sql.matchAll(/[@:$]([A-Za-z_]\w*)/g)].map((m) => m[1]));
+    return Object.fromEntries(Object.entries(args[0]).filter(([k]) => used.has(k)).map(([k, v]) => [k, clean(v)]));
+  }
+  return args.map(clean);
+}
 
 /** libSQL rows -> plain objects (safe to spread / JSON). */
 const plain = (rs) => rs.rows.map((r) => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])));
 
 function helpers(execute) {
-  const exec = (sql, args) => execute({ sql, args: toArgs(args) });
+  const exec = (sql, args) => execute({ sql, args: toArgs(sql, args) });
   return {
     async get(sql, ...args) {
       return plain(await exec(sql, args))[0];
@@ -126,6 +134,8 @@ CREATE TABLE IF NOT EXISTS expenses (
   tax          INTEGER NOT NULL DEFAULT 0,       -- cents
   tip          INTEGER NOT NULL DEFAULT 0,       -- cents
   extras_split TEXT NOT NULL DEFAULT 'proportional', -- proportional | equal (tax + tip)
+  discount     INTEGER NOT NULL DEFAULT 0,       -- cents, bill-level coupon/promo
+  discount_split TEXT NOT NULL DEFAULT 'proportional', -- proportional | equal
   total        INTEGER NOT NULL,                 -- cents
   tax_mode     TEXT NOT NULL DEFAULT 'included', -- included | percent | amount
   tax_value    REAL NOT NULL DEFAULT 0,
@@ -154,8 +164,21 @@ CREATE TABLE IF NOT EXISTS expense_splits (
   base       INTEGER NOT NULL DEFAULT 0,
   tax        INTEGER NOT NULL DEFAULT 0,
   tip        INTEGER NOT NULL DEFAULT 0,
+  discount   INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (expense_id, user_id)
 );
+-- Personal API keys (for AI assistants via MCP, or scripts). Only a SHA-256 hash is stored.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id),
+  name         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  prefix       TEXT NOT NULL,                    -- first characters, to recognise a key
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_user ON api_tokens(user_id);
+
 CREATE INDEX IF NOT EXISTS idx_payers_user ON expense_payers(user_id);
 CREATE INDEX IF NOT EXISTS idx_splits_user ON expense_splits(user_id);
 `;
@@ -176,6 +199,9 @@ export function dbReady() {
     await addColumn('expenses', 'extras_split', "TEXT NOT NULL DEFAULT 'proportional'");
     await addColumn('expense_splits', 'tip', 'INTEGER NOT NULL DEFAULT 0');
     await addColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn('expenses', 'discount', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn('expenses', 'discount_split', "TEXT NOT NULL DEFAULT 'proportional'");
+    await addColumn('expense_splits', 'discount', 'INTEGER NOT NULL DEFAULT 0');
   })().catch((err) => {
     ready = null; // retry on the next request
     throw err;

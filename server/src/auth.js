@@ -29,7 +29,47 @@ function setSession(res, user) {
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: SECURE, maxAge: MAX_AGE, path: '/' });
 }
 
+// ---------------------------------------------------------------------------
+// Personal API keys: "Authorization: Bearer stl_…". Used by AI assistants (MCP)
+// and scripts; they act as the key's owner. Only a SHA-256 hash is stored.
+// ---------------------------------------------------------------------------
+export const API_KEY_PREFIX = 'stl_';
+export const hashApiKey = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
+export const newApiKey = () => API_KEY_PREFIX + crypto.randomBytes(30).toString('base64url');
+
+async function userFromApiKey(header) {
+  const m = /^Bearer\s+(stl_[A-Za-z0-9_-]{20,})\s*$/.exec(header || '');
+  if (!m) return null;
+  const row = await db.get(
+    `SELECT t.id AS token_id, t.last_used_at, u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
+    hashApiKey(m[1])
+  );
+  if (!row) return null;
+  // Record use at most every 10 minutes (keeps writes down).
+  const stale = !row.last_used_at || Date.now() - Date.parse(row.last_used_at + 'Z') > 10 * 60 * 1000;
+  if (stale) db.run("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?", row.token_id).catch(() => {});
+  const { token_id: tokenId, last_used_at: _ignored, ...user } = row;
+  return { user, tokenId };
+}
+
+/** Routes that must be done by a signed-in person, never with an API key. */
+export function requireSession(req, _res, next) {
+  if (req.apiKeyId) return next(new HttpError(403, 'This needs you to be signed in to the app, not an API key.'));
+  next();
+}
+
 export async function requireAuth(req, _res, next) {
+  if (req.headers.authorization) {
+    try {
+      const found = await userFromApiKey(req.headers.authorization);
+      if (!found) return next(new HttpError(401, 'That API key isn’t valid (it may have been revoked).'));
+      req.user = found.user;
+      req.apiKeyId = found.tokenId;
+      return next();
+    } catch (err) {
+      return next(err);
+    }
+  }
   const token = req.cookies?.[COOKIE];
   if (!token) return next(new HttpError(401, 'Please sign in.'));
   let sub;
@@ -124,11 +164,11 @@ authRouter.get('/me', requireAuth, (req, res) => {
 });
 
 /** Signed-in users can see the invite code so they can share a ready-made link. */
-authRouter.get('/invite', requireAuth, requirePasswordSet, (_req, res) => {
+authRouter.get('/invite', requireAuth, requireSession, requirePasswordSet, (_req, res) => {
   res.json({ inviteCode: inviteCode() || null });
 });
 
-authRouter.patch('/me', requireAuth, async (req, res) => {
+authRouter.patch('/me', requireAuth, requireSession, async (req, res) => {
   const { displayName, currentPassword, newPassword } = req.body;
   if (displayName !== undefined) {
     const name = String(displayName).trim().slice(0, 40);
@@ -152,4 +192,33 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     );
   }
   res.json({ user: selfUser(await getUserById(req.user.id)) });
+});
+
+// ---- API key management (signed-in session only) ---------------------------
+const MAX_KEYS = 10;
+const keyDto = (t) => ({ id: t.id, name: t.name, prefix: t.prefix, createdAt: t.created_at, lastUsedAt: t.last_used_at });
+
+authRouter.get('/api-keys', requireAuth, requireSession, requirePasswordSet, async (req, res) => {
+  const rows = await db.all('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY id DESC', req.user.id);
+  res.json({ keys: rows.map(keyDto) });
+});
+
+authRouter.post('/api-keys', requireAuth, requireSession, requirePasswordSet, async (req, res) => {
+  const name = String(req.body.name || '').trim().slice(0, 40) || 'My AI assistant';
+  const { n } = await db.get('SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = ?', req.user.id);
+  if (n >= MAX_KEYS) throw new HttpError(400, `You can have up to ${MAX_KEYS} API keys. Revoke one first.`);
+  const key = newApiKey();
+  const info = await db.run(
+    'INSERT INTO api_tokens (user_id, name, token_hash, prefix) VALUES (?, ?, ?, ?)',
+    req.user.id, name, hashApiKey(key), key.slice(0, 10)
+  );
+  const row = await db.get('SELECT * FROM api_tokens WHERE id = ?', info.lastInsertRowid);
+  // The full key is shown exactly once.
+  res.status(201).json({ key: keyDto(row), secret: key });
+});
+
+authRouter.delete('/api-keys/:id', requireAuth, requireSession, async (req, res) => {
+  const info = await db.run('DELETE FROM api_tokens WHERE id = ? AND user_id = ?', Number(req.params.id) || 0, req.user.id);
+  if (!info.changes) throw new HttpError(404, 'API key not found.');
+  res.json({ ok: true });
 });

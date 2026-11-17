@@ -845,3 +845,11 @@ hr.soft { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .tip-row .chip { height: 34px; padding: 0 10px; }
 .tip-row .chip:disabled { opacity: 0.45; }
 @media (max-width: 380px) { .tip-row { grid-template-columns: 1fr 120px; } .tip-row .chips { grid-column: 1 / -1; grid-row: 2; } }
+
+/* ---------- API keys / AI access --------------------------------------- */
+.api-help { border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; background: var(--surface-2); font-size: 14px; }
+.api-help summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; list-style: none; }
+.api-help summary::-webkit-details-marker { display: none; }
+.api-help ol { margin: 10px 0 2px; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
+.api-help code { font-family: var(--font-mono); font-size: 12.5px; background: var(--surface-3); padding: 1px 5px; border-radius: 6px; }
+.api-help .field { margin-top: 10px; }

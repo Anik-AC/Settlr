@@ -174,6 +174,8 @@ npm run admin -- list                                           # users + groups
 npm run admin -- add-user Iron-man "Iron-man" --yes             # prints a temporary password
 npm run admin -- reset-password iron-man --yes                  # forgot password → new temporary one
 npm run admin -- add-group "Wow-CN-Tower" onix ai-man iron-man --yes
+npm run admin -- add-expense "Wow-CN-Tower" --desc "Lyft" --amount 7.53 --paid-by onix \
+  --split onix,ai-man,iron-man --date 2026-11-06 --category transport --yes   # tax included, equal split
 ```
 
 - It uses `DATABASE_URL` / `DATABASE_AUTH_TOKEN` from your environment or `.env`. With a remote
@@ -181,6 +183,25 @@ npm run admin -- add-group "Wow-CN-Tower" onix ai-man iron-man --yes
 - Usernames are case-insensitive (`Onix` signs in as `onix`). Re-running is safe: existing users
   and groups are skipped.
 - Send each temporary password privately; it stops working once they've set their own.
+
+---
+
+## 5c. AI assistant access (MCP)
+
+Each person can let their own AI assistant add expenses and check balances for them:
+
+1. In Settlr: **Account → AI assistant access → Create key**. The key (`stl_…`) is shown once.
+2. In Claude (app, desktop or claude.ai): **Settings → Connectors → Add custom connector**,
+   URL `https://settlr.onixpace.com/api/mcp`, and under **Request headers** add
+   `Authorization: Bearer stl_…`. Choose "No sign in".
+   Claude Code: `claude mcp add --transport http settlr https://settlr.onixpace.com/api/mcp --header "Authorization: Bearer stl_…"`
+3. Ask things like "add $24.50 pizza to Wow-CN-Tower, split equally, I paid" or "what do I owe?".
+
+Tools: `list_groups`, `add_expense` (equal or itemized, tax/tip/discount), `list_expenses`,
+`get_balances`, `record_payment`, `delete_expense` (only entries you added). A key acts as its
+owner with the same permissions as the app; it can't create keys or change passwords. Revoke a
+key anytime from the same page. Any MCP-capable assistant works, and the REST API (`/api/*`)
+accepts the same `Authorization: Bearer` header for scripts.
 
 ---
 

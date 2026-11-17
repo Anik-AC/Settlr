@@ -6,6 +6,8 @@
  *   npm run admin -- add-user <username> ["Display Name"]      temp password, must change on first login
  *   npm run admin -- reset-password <username>                 new temp password, must change on login
  *   npm run admin -- add-group "<Group name>" <owner> [member ...]
+ *   npm run admin -- add-expense "<Group name>" --desc "Lyft" --amount 7.53 --paid-by onix
+ *        [--split onix,ai-man] [--date 2026-11-06] [--category transport]   (tax included, split equally)
  *
  * Uses the same database settings as the app: DATABASE_URL / DATABASE_AUTH_TOKEN
  * from the environment or the repo-root .env (production Turso), otherwise the
@@ -17,11 +19,21 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { db, tx, dbReady, DB_LABEL } from '../src/db.js';
 import { USERNAME_RE } from '../src/auth.js';
-import { getUserByUsername } from '../src/ledger.js';
+import { getUserByUsername, groupMemberIds } from '../src/ledger.js';
+import { createExpense, CATEGORIES } from '../src/expenses.js';
+import { toCents, formatCAD } from '../../shared/split.js';
 
 const args = process.argv.slice(2);
 const yes = args.includes('--yes');
-const [cmd, ...rest] = args.filter((a) => a !== '--yes');
+// --flag value pairs (for add-expense); everything else is positional.
+const flags = {};
+const positional = [];
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--yes') continue;
+  if (args[i].startsWith('--')) flags[args[i].slice(2)] = args[++i];
+  else positional.push(args[i]);
+}
+const [cmd, ...rest] = positional;
 const remote = !!process.env.DATABASE_URL;
 const willWrite = !remote || yes;
 
@@ -103,6 +115,46 @@ async function addGroup(nameIn, ownerName, memberNames) {
   }
 }
 
+async function addExpense(groupName) {
+  const group = await db.get('SELECT * FROM groups WHERE name = ? COLLATE NOCASE', String(groupName || ''));
+  if (!group) fail(`No group called "${groupName}".`);
+  const members = await groupMemberIds(group.id);
+  const userId = async (u) => {
+    const user = await getUserByUsername(u);
+    if (!user) fail(`No user @${u}.`);
+    if (!members.includes(user.id)) fail(`@${user.username} isn't in "${group.name}".`);
+    return user.id;
+  };
+  const desc = String(flags.desc || '').trim();
+  const cents = toCents(flags.amount);
+  if (!desc) fail('Add --desc "What it was for".');
+  if (!(cents > 0)) fail('Add --amount 12.34');
+  const date = flags.date || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto' }).format(new Date());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) fail('--date must be YYYY-MM-DD.');
+  const category = flags.category || 'general';
+  if (!CATEGORIES.includes(category)) fail(`--category must be one of: ${CATEGORIES.join(', ')}.`);
+  const payer = await userId(flags['paid-by'] || '');
+  const split = flags.split ? await Promise.all(flags.split.split(',').map((u) => userId(u.trim()))) : members;
+  const body = {
+    type: 'expense', groupId: group.id, description: desc, category, date, notes: flags.notes || '',
+    amount: cents, tax: { mode: 'included', value: 0 },
+    split: { method: 'equal', participants: split },
+    payers: [{ userId: payer, amount: cents }],
+  };
+  const dupe = await db.get(
+    'SELECT id FROM expenses WHERE group_id = ? AND description = ? AND date = ? AND total = ?',
+    group.id, desc, date, cents
+  );
+  if (dupe) {
+    console.log(`  • "${desc}" on ${date} for ${formatCAD(cents)} already exists (#${dupe.id}), skipped.`);
+    return;
+  }
+  const names = (await db.all(`SELECT username FROM users WHERE id IN (${split.map(() => '?').join(',')})`, ...split)).map((r) => '@' + r.username);
+  if (!willWrite) return console.log(`  (dry run) ${date}  ${desc}  ${formatCAD(cents)}  split ${names.join(', ')}`);
+  const id = await createExpense(body, payer);
+  console.log(`  ✓ #${id}  ${date}  ${desc}  ${formatCAD(cents)}  [${category}]  split ${names.join(', ')}`);
+}
+
 async function list() {
   const users = await db.all('SELECT id, username, display_name, must_change_password, created_at FROM users ORDER BY id');
   console.log(`  ${users.length} user(s):`);
@@ -120,6 +172,7 @@ const HELP = `Usage:
   npm run admin -- add-user <username> ["Display Name"]
   npm run admin -- reset-password <username>
   npm run admin -- add-group "<Group name>" <owner> [member ...]
+  npm run admin -- add-expense "<Group>" --desc "Lyft" --amount 7.53 --paid-by onix [--split a,b] [--date YYYY-MM-DD] [--category transport]
 Add --yes to apply changes to a remote (production) database.`;
 
 if (!cmd || cmd === 'help' || cmd === '--help') {
@@ -137,5 +190,6 @@ if (cmd === 'list') await list();
 else if (cmd === 'add-user') await addUser(rest[0], rest[1]);
 else if (cmd === 'reset-password') await resetPassword(rest[0]);
 else if (cmd === 'add-group') await addGroup(rest[0], rest[1], rest.slice(2));
+else if (cmd === 'add-expense') await addExpense(rest[0]);
 else fail(`Unknown command "${cmd}".\n\n${HELP}`);
 console.log('');

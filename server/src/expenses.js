@@ -64,7 +64,7 @@ export async function buildExpense(body, actorId) {
       row: {
         type, group_id: groupId, date, notes,
         description: body.description?.trim() || `${from.display_name} paid ${to.display_name}`,
-        category: 'payment', subtotal: amount, tax: 0, tip: 0, extras_split: 'proportional', total: amount,
+        category: 'payment', subtotal: amount, tax: 0, tip: 0, extras_split: 'proportional', discount: 0, discount_split: 'proportional', total: amount,
         tax_mode: 'included', tax_value: 0, split_method: 'exact', split_meta: null, method,
       },
       payers: [{ userId: fromId, amount }],
@@ -95,7 +95,9 @@ export async function buildExpense(body, actorId) {
   };
   const extrasSplit = body.extrasSplit === 'equal' ? 'equal' : 'proportional';
   const tip = int(body.tip) || 0;
-  const result = computeSplit({ amount: int(body.amount) || 0, tax, tip, extrasSplit, split });
+  const discount = int(body.discount) || 0;
+  const discountSplit = body.discountSplit === 'equal' ? 'equal' : 'proportional';
+  const result = computeSplit({ amount: int(body.amount) || 0, tax, tip, extrasSplit, discount, discountSplit, split });
   if (result.errors.length) throw new HttpError(400, result.errors[0], result.errors);
   if (result.total > 100_000_000) throw new HttpError(400, 'That amount looks too large.');
 
@@ -126,7 +128,8 @@ export async function buildExpense(body, actorId) {
   return {
     row: {
       type, group_id: groupId, date, notes, description, category,
-      subtotal: result.subtotal, tax: result.tax, tip: result.tip, extras_split: extrasSplit, total: result.total,
+      subtotal: result.subtotal, tax: result.tax, tip: result.tip, extras_split: extrasSplit,
+      discount: result.discount, discount_split: discountSplit, total: result.total,
       tax_mode: tax.mode, tax_value: tax.value, split_method: split.method,
       split_meta: JSON.stringify(meta), method: null,
     },
@@ -143,8 +146,8 @@ async function writeChildren(q, id, payers, splits) {
   }
   for (const x of splits) {
     await q.run(
-      'INSERT INTO expense_splits (expense_id, user_id, amount, base, tax, tip) VALUES (?, ?, ?, ?, ?, ?)',
-      id, x.userId, x.amount, x.base ?? x.amount, x.tax ?? 0, x.tip ?? 0
+      'INSERT INTO expense_splits (expense_id, user_id, amount, base, tax, tip, discount) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id, x.userId, x.amount, x.base ?? x.amount, x.tax ?? 0, x.tip ?? 0, x.discount ?? 0
     );
   }
 }
@@ -154,9 +157,9 @@ export async function createExpense(body, actorId) {
   const { row, payers, splits } = await buildExpense(body, actorId);
   return tx(async (q) => {
     const info = await q.run(
-      `INSERT INTO expenses (type, group_id, description, category, notes, date, subtotal, tax, tip, extras_split, total,
+      `INSERT INTO expenses (type, group_id, description, category, notes, date, subtotal, tax, tip, extras_split, discount, discount_split, total,
         tax_mode, tax_value, split_method, split_meta, method, created_by)
-       VALUES (@type, @group_id, @description, @category, @notes, @date, @subtotal, @tax, @tip, @extras_split, @total,
+       VALUES (@type, @group_id, @description, @category, @notes, @date, @subtotal, @tax, @tip, @extras_split, @discount, @discount_split, @total,
         @tax_mode, @tax_value, @split_method, @split_meta, @method, @created_by)`,
       { ...row, created_by: actorId }
     );
@@ -173,7 +176,7 @@ export async function updateExpense(id, body, actorId) {
   await tx(async (q) => {
     await q.run(
       `UPDATE expenses SET group_id=@group_id, description=@description, category=@category, notes=@notes,
-         date=@date, subtotal=@subtotal, tax=@tax, tip=@tip, extras_split=@extras_split, total=@total, tax_mode=@tax_mode,
+         date=@date, subtotal=@subtotal, tax=@tax, tip=@tip, extras_split=@extras_split, discount=@discount, discount_split=@discount_split, total=@total, tax_mode=@tax_mode,
          tax_value=@tax_value, split_method=@split_method, split_meta=@split_meta, method=@method, updated_by=@updated_by,
          updated_at=datetime('now') WHERE id=@id`,
       { ...row, id, updated_by: actorId }

@@ -41,6 +41,7 @@ Return ONLY a JSON object, no prose, no markdown fences, with this exact shape:
   "subtotal": number | null,
   "tax": number | null,
   "tip": number | null,
+  "discount": number | null,
   "total": number | null
 }
 "total" is the FINAL amount charged, including tax and tip (GRAND TOTAL / amount paid).
@@ -51,10 +52,12 @@ Rules:
 - "tax" is the sum of all tax lines (GST, HST, PST, QST, VAT, sales tax). Do not list taxes as items.
 - "tip" is the sum of tip and gratuity lines (incl. "Dasher tip", "Courier tip", a restaurant's automatic gratuity/service charge). Do not list them as items.
 - App and shop fees ARE items: delivery fee, service fee, small-order fee, bag fee, bottle deposit. Apply fee discounts (e.g. "DashPass delivery discount") to that fee; drop a fee that ends up at 0.
+- "discount" is a coupon, promo code or credit applied to the WHOLE order (e.g. "Promotion", "Coupon", "$10 off your order", "Credits applied"), as a positive number. Do NOT put it on any item. (Discounts tied to one item or one fee still go on that item/fee as above.)
+- Leave out items marked out of stock, unavailable, removed, refunded or "not included", and leave out their refund lines too: they weren't charged.
 - Skip payment lines: cash, card, change, balance due, loyalty points, rounding.
 - Keep item names short and readable (expand obvious abbreviations, max 40 characters).
 - Use null when a value is not printed on the bill. Never invent items.
-- Before answering, check that items + tax + tip equals the total. If not, look again for missed lines, discounts or credits.`;
+- Before answering, check that items + tax + tip - discount equals the total. If not, look again for missed lines, discounts or credits.`;
 
 const MULTI_PROMPT = (n) => `
 
@@ -123,6 +126,7 @@ export function normalizeReceipt(raw) {
 
   const tax = Math.max(0, cents(raw?.tax) || 0);
   const tip = Math.max(0, cents(raw?.tip) || 0);
+  const discount = Math.abs(cents(raw?.discount) || 0); // models sometimes send it negative
   const total = cents(raw?.total);
   const subtotal = cents(raw?.subtotal);
   const itemsSum = items.reduce((a, i) => a + i.amount, 0);
@@ -132,13 +136,13 @@ export function normalizeReceipt(raw) {
   // receipts print TOTAL before the tip line). Allow a cent per line of rounding.
   const $ = (c) => `$${(c / 100).toFixed(2)}`;
   const close = (a, b) => Math.abs(a - b) <= Math.max(2, items.length);
-  const computed = itemsSum + tax + tip;
+  const computed = itemsSum + tax + tip - discount;
   let reconciled = true;
   if (!items.length) warnings.push('No items could be read from this bill. Try a sharper, well-lit photo.');
   else if (total != null && total > 0) {
-    if (!close(total, computed) && !close(total, itemsSum + tax)) {
+    if (!close(total, computed) && !close(total, itemsSum + tax - discount)) {
       reconciled = false;
-      warnings.push(`Items + tax + tip come to ${$(computed)} but the bill's total is ${$(total)}. Check for a missed or misread line.`);
+      warnings.push(`Items + tax + tip${discount ? " − discount" : ""} come to ${$(computed)} but the bill's total is ${$(total)}. Check for a missed or misread line.`);
     }
   } else {
     // No grand total in view: usually only part of the bill was captured. A slower re-read
@@ -159,6 +163,7 @@ export function normalizeReceipt(raw) {
     items,
     tax,
     tip,
+    discount,
     subtotal: itemsSum,
     total: computed,
     billTotal: total,

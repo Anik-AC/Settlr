@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
 import { Avatar, Segmented, TopBar, useToast } from '../components/ui.jsx';
 import { PasswordInput } from './Login.jsx';
+import ApiKeys from '../components/ApiKeys.jsx';
 
 function applyTheme(t) {
   try { localStorage.setItem('settlr-theme', t); } catch { /* private mode */ }
@@ -85,6 +86,8 @@ export default function Account() {
           </div>
         </div>
       </section>
+
+      <ApiKeys />
 
       <section className="section">
         <div className="section-head"><h2>Appearance</h2></div>

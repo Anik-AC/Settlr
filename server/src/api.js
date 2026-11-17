@@ -37,7 +37,7 @@ async function groupNames(ids) {
 }
 
 /** The viewer's groups with their summaries, loaded in parallel. */
-async function myGroups(me) {
+export async function myGroups(me) {
   const ids = await groupIdsFor(me);
   return Promise.all(
     ids.map(async (gid) => {
@@ -48,7 +48,7 @@ async function myGroups(me) {
 }
 
 /** Balances between the viewer and everyone they share expenses with. */
-async function peopleBalances(userId) {
+export async function peopleBalances(userId) {
   const [mine, mateRows] = await Promise.all([
     loadExpenses(INVOLVED_SQL, [userId, userId]),
     db.all(

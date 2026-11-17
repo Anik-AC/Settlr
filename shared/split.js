@@ -71,6 +71,8 @@ export function allocate(total, weights) {
  *   tax: { mode: 'included' | 'percent' | 'amount', value: number },
  *        // percent: e.g. 13 for 13 %; amount: cents
  *   tip: cents (optional, never taxed),
+ *   discount: cents (optional) — a bill-level coupon/promo taken off the total,
+ *   discountSplit: 'proportional' (default: by what each person had) | 'equal'
  *   extrasSplit: 'proportional' (default) | 'equal'
  *        // proportional: tax/tip follow each person's (taxable) portion
  *        // equal: tax is split evenly among people with taxable items, tip among everyone
@@ -92,11 +94,15 @@ export function computeSplit(input) {
   const values = split.values || {};
   const extrasSplit = input?.extrasSplit || 'proportional';
   const tip = Math.round(Number(input?.tip) || 0);
+  const discount = Math.round(Number(input?.discount) || 0);
+  const discountSplit = input?.discountSplit || 'proportional';
 
   if (!SPLIT_METHODS.includes(method)) errors.push('Unknown split method.');
   if (!TAX_MODES.includes(taxCfg.mode)) errors.push('Unknown tax mode.');
   if (!EXTRAS_SPLITS.includes(extrasSplit)) errors.push('Unknown tax/tip split.');
   if (tip < 0) errors.push('Tip cannot be negative.');
+  if (discount < 0) errors.push('Discount cannot be negative.');
+  if (!EXTRAS_SPLITS.includes(discountSplit)) errors.push('Unknown discount split.');
 
   /** userId -> pre-tax base share; userId -> taxable base share */
   const base = new Map();
@@ -186,17 +192,28 @@ export function computeSplit(input) {
   const tipBase = Math.max(0, tip);
   if (tipBase > 0 && !ids.some((id) => (base.get(id) || 0) > 0)) errors.push('Add something to split before adding a tip.');
   const tipParts = allocate(tipBase, ids.map((id) => (equal ? ((base.get(id) || 0) > 0 ? 1 : 0) : base.get(id) || 0)));
+  // Discount (coupon/promo on the whole bill): never more than the subtotal, and
+  // nobody's share goes below zero. By portion is the natural default.
+  const discountBase = Math.max(0, discount);
+  if (discountBase > subtotal && subtotal > 0) errors.push('The discount is bigger than the items it applies to.');
+  const discEqual = discountSplit === 'equal';
+  const discParts = allocate(Math.min(discountBase, subtotal), ids.map((id) => (discEqual ? ((base.get(id) || 0) > 0 ? 1 : 0) : base.get(id) || 0)));
+  if (discEqual && ids.some((id, i) => (discParts[i] || 0) > (base.get(id) || 0) + (taxParts[i] || 0) + (tipParts[i] || 0))) {
+    errors.push('Split equally, the discount would be more than someone’s share. Split it by portion instead.');
+  }
   const shares = ids
     .map((id, i) => ({
       userId: id,
       base: base.get(id) || 0,
       tax: taxParts[i] || 0,
       tip: tipParts[i] || 0,
-      amount: (base.get(id) || 0) + (taxParts[i] || 0) + (tipParts[i] || 0),
+      discount: discParts[i] || 0,
+      amount: (base.get(id) || 0) + (taxParts[i] || 0) + (tipParts[i] || 0) - (discParts[i] || 0),
     }))
     .filter((s) => s.amount > 0 || method !== 'itemized');
 
-  return { subtotal, tax, tip: tipBase, total: subtotal + tax + tipBase, shares, errors };
+  const disc = Math.min(discountBase, subtotal);
+  return { subtotal, tax, tip: tipBase, discount: disc, total: subtotal + tax + tipBase - disc, shares, errors };
 }
 
 /**

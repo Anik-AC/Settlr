@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^4.6.7"
   }
 }

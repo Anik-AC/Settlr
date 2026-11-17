@@ -133,3 +133,19 @@ test('tip defaults to proportional and keeps old expenses unchanged', () => {
   assert.equal(old.tip, 0);
   assert.equal(old.total, 3000);
 });
+
+test('bill-level coupon discount: by portion (default) and equally', () => {
+  const items = [
+    { name: 'Pad Thai', amount: 3000, userIds: [1] },
+    { name: 'Curry', amount: 1000, userIds: [2] },
+  ];
+  const byPortion = computeSplit({ discount: 800, split: { method: 'itemized', items } });
+  assert.deepEqual(byPortion.errors, []);
+  assert.equal(byPortion.total, 3200);
+  assert.deepEqual(byPortion.shares.map((s) => [s.discount, s.amount]), [[600, 2400], [200, 800]]);
+  const equal = computeSplit({ discount: 800, discountSplit: 'equal', split: { method: 'itemized', items } });
+  assert.deepEqual(equal.shares.map((s) => [s.discount, s.amount]), [[400, 2600], [400, 600]]);
+  assert.equal(sum(equal.shares.map((s) => s.amount)), equal.total);
+  const tooBig = computeSplit({ discount: 5000, split: { method: 'itemized', items } });
+  assert.ok(tooBig.errors.length);
+});

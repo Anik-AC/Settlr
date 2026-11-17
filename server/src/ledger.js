@@ -43,7 +43,7 @@ export async function loadExpenses(where = '1=1', params = [], { limit, offset }
   ]);
   const byId = new Map(rows.map((r) => [r.id, { ...r, payers: [], splits: [] }]));
   for (const p of payers) byId.get(p.expense_id).payers.push({ userId: p.user_id, amount: p.amount });
-  for (const s of splits) byId.get(s.expense_id).splits.push({ userId: s.user_id, amount: s.amount, base: s.base, tax: s.tax, tip: s.tip || 0 });
+  for (const s of splits) byId.get(s.expense_id).splits.push({ userId: s.user_id, amount: s.amount, base: s.base, tax: s.tax, tip: s.tip || 0, discount: s.discount || 0 });
   return rows.map((r) => byId.get(r.id));
 }
 
@@ -84,6 +84,8 @@ export function serializeExpense(e) {
     tax: e.tax,
     tip: e.tip || 0,
     extrasSplit: e.extras_split || 'proportional',
+    discount: e.discount || 0,
+    discountSplit: e.discount_split || 'proportional',
     total: e.total,
     taxMode: e.tax_mode,
     taxValue: e.tax_value,
