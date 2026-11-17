@@ -39,7 +39,8 @@ export const KEY_SCOPES = ['full', 'finance'];
 export const newApiKey = (scope = 'full') => API_KEY_PREFIX + (scope === 'finance' ? 'fin_' : '') + crypto.randomBytes(30).toString('base64url');
 
 async function userFromApiKey(header) {
-  const m = /^Bearer\s+(stl_[A-Za-z0-9_-]{20,})\s*$/.exec(header || '');
+  // "Bearer" is case-insensitive (RFC 7235); stray spaces around the value are fine.
+  const m = /^\s*Bearer\s+(stl_[A-Za-z0-9_-]{20,})\s*$/i.exec(header || '');
   if (!m) return null;
   const row = await db.get(
     `SELECT t.id AS token_id, t.last_used_at, t.scope AS token_scope, u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
