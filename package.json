@@ -12,7 +12,8 @@
     "dev": "concurrently -k -n api,web -c yellow,cyan \"npm:dev -w server\" \"npm:dev -w client\"",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
-    "test": "node --test shared/*.test.js"
+    "test": "node --test shared/*.test.js",
+    "admin": "node server/scripts/admin.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

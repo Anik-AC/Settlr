@@ -14,6 +14,7 @@ import ExpenseDetail from './pages/ExpenseDetail.jsx';
 import ExpenseForm from './pages/ExpenseForm.jsx';
 import SettleUp from './pages/SettleUp.jsx';
 import Account from './pages/Account.jsx';
+import SetPassword from './pages/SetPassword.jsx';
 
 function Protected({ children }) {
   const { user, ready } = useAuth();
@@ -26,6 +27,8 @@ function Protected({ children }) {
     );
   }
   if (!user) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />;
+  // Accounts made with a temporary password must pick their own first.
+  if (user.mustChangePassword) return <SetPassword />;
   return children;
 }
 

@@ -23,7 +23,7 @@ export default function Register() {
   if (user) return <Navigate to="/" replace />;
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: typeof v === 'string' ? v : v.target.value }));
-  const usernameOk = /^[a-z0-9_.]{3,20}$/i.test(form.username);
+  const usernameOk = /^[a-z0-9_.-]{3,20}$/i.test(form.username);
   const showInvite = inviteRequired && (!inviteFromLink || inviteRejected);
 
   const submit = async (e) => {
@@ -65,7 +65,7 @@ export default function Register() {
               required
             />
           </div>
-          <span className="field-hint">3–20 characters: letters, numbers, dots or underscores.</span>
+          <span className="field-hint">3–20 characters: letters, numbers, dots, dashes or underscores.</span>
         </div>
         <div className="field">
           <label className="field-label" htmlFor="password">Password</label>

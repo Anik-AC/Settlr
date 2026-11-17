@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS users (
   username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
   display_name  TEXT NOT NULL,
   password_hash TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 0, -- 1 = signed in with a temporary password
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -174,6 +175,7 @@ export function dbReady() {
     await addColumn('expenses', 'tip', 'INTEGER NOT NULL DEFAULT 0');
     await addColumn('expenses', 'extras_split', "TEXT NOT NULL DEFAULT 'proportional'");
     await addColumn('expense_splits', 'tip', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
   })().catch((err) => {
     ready = null; // retry on the next request
     throw err;

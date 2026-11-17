@@ -1,7 +1,7 @@
 import './env.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { authRouter, requireAuth } from './auth.js';
+import { authRouter, requireAuth, requirePasswordSet } from './auth.js';
 import { api } from './api.js';
 import { receiptsRouter } from './receipts.js';
 import { HttpError } from './expenses.js';
@@ -46,14 +46,15 @@ export function createApp() {
   app.set('trust proxy', process.env.VERCEL ? true : 'loopback');
   app.use(cookieParser());
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  // `commit` shows which deploy is live (Vercel sets VERCEL_GIT_COMMIT_SHA).
+  app.get('/api/health', (_req, res) => res.json({ ok: true, commit: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7) }));
   app.use('/api', ensureDb);
   // Bill photos are bigger than normal JSON bodies, so this route parses its own body.
   // (Vercel caps request bodies at 4.5 MB; the client keeps photos under that.)
-  app.use('/api/receipts', requireAuth, jsonBody('4.5mb'), receiptsRouter);
+  app.use('/api/receipts', requireAuth, requirePasswordSet, jsonBody('4.5mb'), receiptsRouter);
   app.use(jsonBody('200kb'));
   app.use('/api/auth', authRouter);
-  app.use('/api', requireAuth, api);
+  app.use('/api', requireAuth, requirePasswordSet, api);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
   return app;
 }

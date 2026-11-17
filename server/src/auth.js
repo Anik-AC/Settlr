@@ -4,6 +4,9 @@ import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { db, getSecret } from './db.js';
 import { publicUser, getUserById, getUserByUsername } from './ledger.js';
+
+/** The signed-in user's own view of their account (never shown to other users). */
+const selfUser = (u) => (u ? { ...publicUser(u), mustChangePassword: !!u.must_change_password } : null);
 import { HttpError } from './expenses.js';
 
 const COOKIE = 'settlr_session';
@@ -11,7 +14,7 @@ const MAX_AGE = 1000 * 60 * 60 * 24 * 60; // 60 days
 // Behind HTTPS in production (Vercel), mark the cookie Secure.
 const SECURE = !!process.env.VERCEL || process.env.SETTLR_SECURE_COOKIES === '1';
 
-export const USERNAME_RE = /^[a-z0-9_.]{3,20}$/i;
+export const USERNAME_RE = /^[a-z0-9_.-]{3,20}$/i;
 
 /** Optional invite code: when set, signing up requires it (keeps strangers out). */
 const inviteCode = () => (process.env.SETTLR_INVITE_CODE || '').trim();
@@ -48,6 +51,17 @@ export async function requireAuth(req, _res, next) {
   }
 }
 
+/**
+ * Accounts created by an admin start with a temporary password. Until the person
+ * picks their own, everything except their own account endpoints is blocked.
+ */
+export function requirePasswordSet(req, _res, next) {
+  if (req.user?.must_change_password) {
+    return next(new HttpError(403, 'Choose a new password to continue.', { code: 'password_change_required' }));
+  }
+  next();
+}
+
 // Small in-memory limiter for login attempts. On serverless each instance keeps
 // its own counts, so this slows down guessing rather than stopping it outright.
 const attempts = new Map();
@@ -75,7 +89,7 @@ authRouter.post('/register', async (req, res) => {
     throw new HttpError(403, 'That invite code isn’t right. Ask the friend who sent you the link.');
   }
   if (!USERNAME_RE.test(username)) {
-    throw new HttpError(400, 'Usernames are 3–20 characters: letters, numbers, dots or underscores.');
+    throw new HttpError(400, 'Usernames are 3–20 characters: letters, numbers, dots, dashes or underscores.');
   }
   if (!displayName) throw new HttpError(400, 'Tell your friends your name.');
   if (password.length < 8) throw new HttpError(400, 'Use a password with at least 8 characters.');
@@ -87,7 +101,7 @@ authRouter.post('/register', async (req, res) => {
   );
   const user = await getUserById(info.lastInsertRowid);
   setSession(res, user);
-  res.status(201).json({ user: publicUser(user) });
+  res.status(201).json({ user: selfUser(user) });
 });
 
 authRouter.post('/login', async (req, res) => {
@@ -97,7 +111,7 @@ authRouter.post('/login', async (req, res) => {
     throw new HttpError(401, 'That username and password don’t match.');
   }
   setSession(res, user);
-  res.json({ user: publicUser(user) });
+  res.json({ user: selfUser(user) });
 });
 
 authRouter.post('/logout', (_req, res) => {
@@ -106,11 +120,11 @@ authRouter.post('/logout', (_req, res) => {
 });
 
 authRouter.get('/me', requireAuth, (req, res) => {
-  res.json({ user: publicUser(req.user) });
+  res.json({ user: selfUser(req.user) });
 });
 
 /** Signed-in users can see the invite code so they can share a ready-made link. */
-authRouter.get('/invite', requireAuth, (_req, res) => {
+authRouter.get('/invite', requireAuth, requirePasswordSet, (_req, res) => {
   res.json({ inviteCode: inviteCode() || null });
 });
 
@@ -122,11 +136,20 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     await db.run('UPDATE users SET display_name = ? WHERE id = ?', name, req.user.id);
   }
   if (newPassword !== undefined) {
-    if (!(await bcrypt.compare(String(currentPassword || ''), req.user.password_hash))) {
+    const temporary = !!req.user.must_change_password;
+    // With a temporary password the person has just proved it by signing in,
+    // so the first-login screen only asks for the new one.
+    if (!temporary && !(await bcrypt.compare(String(currentPassword || ''), req.user.password_hash))) {
       throw new HttpError(400, 'Your current password is incorrect.');
     }
     if (String(newPassword).length < 8) throw new HttpError(400, 'Use a password with at least 8 characters.');
-    await db.run('UPDATE users SET password_hash = ? WHERE id = ?', await bcrypt.hash(String(newPassword), 10), req.user.id);
+    if (await bcrypt.compare(String(newPassword), req.user.password_hash)) {
+      throw new HttpError(400, temporary ? 'Pick a new password, not the temporary one.' : 'That’s your current password. Pick a new one.');
+    }
+    await db.run(
+      'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
+      await bcrypt.hash(String(newPassword), 10), req.user.id
+    );
   }
-  res.json({ user: publicUser(await getUserById(req.user.id)) });
+  res.json({ user: selfUser(await getUserById(req.user.id)) });
 });

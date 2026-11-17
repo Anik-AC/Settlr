@@ -164,6 +164,26 @@ OPENROUTER_API_KEY=sk-or-...
 
 ---
 
+## 5b. Accounts & groups (admin)
+
+You can create accounts for friends instead of having them sign up. Each gets a **temporary
+password** and must choose their own the first time they sign in (the app is locked until they do).
+
+```bash
+npm run admin -- list                                           # users + groups
+npm run admin -- add-user Iron-man "Iron-man" --yes             # prints a temporary password
+npm run admin -- reset-password iron-man --yes                  # forgot password → new temporary one
+npm run admin -- add-group "Wow-CN-Tower" onix ai-man iron-man --yes
+```
+
+- It uses `DATABASE_URL` / `DATABASE_AUTH_TOKEN` from your environment or `.env`. With a remote
+  (Turso) database it only shows what it *would* do unless you add `--yes`.
+- Usernames are case-insensitive (`Onix` signs in as `onix`). Re-running is safe: existing users
+  and groups are skipped.
+- Send each temporary password privately; it stops working once they've set their own.
+
+---
+
 ## 6. The database: backups and care
 
 - **Automatic:** Turso keeps point-in-time history (how far back depends on your plan). Restore
