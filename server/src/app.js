@@ -49,6 +49,10 @@ export function createApp() {
   app.use(cookieParser());
 
   // `commit` shows which deploy is live (Vercel sets VERCEL_GIT_COMMIT_SHA).
+  // MCP clients (e.g. Claude connectors) probe these for OAuth sign-in. Settlr uses
+  // API keys, not OAuth, so answer a clean 404 instead of the web app's HTML page
+  // (a 200 HTML reply made Claude think OAuth was available and fail to connect).
+  app.use('/.well-known', (_req, res) => res.status(404).json({ error: 'Not found' }));
   app.get('/api/health', (_req, res) => res.json({ ok: true, commit: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7) }));
   app.use('/api', ensureDb);
   // Bill photos are bigger than normal JSON bodies, so this route parses its own body.

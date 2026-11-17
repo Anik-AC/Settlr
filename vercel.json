@@ -9,7 +9,8 @@
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!assets/|icon\\.svg|manifest\\.webmanifest).*)", "destination": "/index.html" }
+    { "source": "/.well-known/(.*)", "destination": "/api" },
+    { "source": "/((?!assets/|icon\\.svg|manifest\\.webmanifest|\\.well-known/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
