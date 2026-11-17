@@ -15,6 +15,7 @@ import ExpenseForm from './pages/ExpenseForm.jsx';
 import SettleUp from './pages/SettleUp.jsx';
 import Account from './pages/Account.jsx';
 import SetPassword from './pages/SetPassword.jsx';
+import UpdateWatcher from './components/UpdateWatcher.jsx';
 
 function Protected({ children }) {
   const { user, ready } = useAuth();
@@ -44,6 +45,7 @@ export default function App() {
   return (
     <>
       <ScrollToTop />
+      <UpdateWatcher />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
