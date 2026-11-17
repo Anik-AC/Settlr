@@ -93,3 +93,7 @@ Set these in `.env` locally (see `.env.example`) and in Vercel → Settings → 
 | `SETTLR_INVITE_CODE` | recommended | When set, sign-up requires this code |
 | `SETTLR_DATA_DIR` | optional | Local data folder (default `server/data`) |
 | `PORT` / `HOST` | optional | Local server port / bind address (default `4000` / `0.0.0.0`) |
+
+## License
+
+[MIT](LICENSE) © 2026 Anik-AC
