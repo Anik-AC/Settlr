@@ -34,6 +34,7 @@ npm test                 # money-engine unit tests
 - **Scan a bill:** on *Add expense*, tap **Camera** or **Upload** (one or several photos/screenshots). A long bill or a delivery-app order can span up to 6 photos: they're read together, so lines that appear in two overlapping shots are only counted once. A free OpenRouter vision model reads the items, tax and tip. Tap people on each item (Everyone, any pair, or one person), pick who paid, save. Tax and tip on scanned bills are split **equally** between everyone on the bill. Photos are shrunk on the phone, sent to OpenRouter, and never stored. You'll see a warning if the items don't add up to the bill's printed total.
 - **Coupons & quantities:** a bill-level coupon/promo is read as a discount and split *By portion* (or *Equally*); out-of-stock/refunded lines are left out; an item like "4 × Coffee" can be split into 4 separate items so each goes to different people.
 - **AI assistant access (MCP):** each person can create an API key (Account page) and connect Claude or another MCP client to `/api/mcp` to add expenses, check balances and record payments. Share a bill photo with Claude and it lands in **Activity → To review**, where you assign items and save. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#5c-ai-assistant-access-mcp).
+- **Finance tracker connection:** *Account → Connected apps* creates a read-only token that lets a personal finance tracker sync what you spent (your share of each expense, by category and bill date). See [docs/FINANCE-API.md](docs/FINANCE-API.md).
 - **Tip:** add a tip in $ or with the 15/18/20% buttons. Tax and tip can be split *Equally* or *By portion*.
 - **Tax:** *Included*, *Add %* (GST 5% / HST 13% / HST 15% presets or a custom rate), or *Add $*. In itemized mode tax only applies to items marked taxable, since basic groceries are zero-rated.
 - **Multiple payers:** several people can each pay part of one bill.
@@ -67,6 +68,7 @@ server/src/
   expenses.js            validation + persistence
   receipts.js            bill scanning (OpenRouter)
   mcp.js                 MCP server for AI assistants (/api/mcp)
+  finance.js             read-only spending feed for finance trackers (/api/finance/v1)
 server/scripts/admin.js  accounts, groups, expenses from the command line (npm run admin)
 client/src/
   pages/                 Home, Groups, GroupDetail, People, PersonDetail,
@@ -74,6 +76,7 @@ client/src/
   components/            AppShell, ExpenseRow, ui primitives
   styles.css             design system
 docs/DEPLOYMENT.md       production setup: Vercel, Turso, Cloudflare DNS, env vars
+docs/FINANCE-API.md      spending sync API for a finance tracker
 ```
 
 ## Configuration

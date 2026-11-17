@@ -35,21 +35,30 @@ function setSession(res, user) {
 // ---------------------------------------------------------------------------
 export const API_KEY_PREFIX = 'stl_';
 export const hashApiKey = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
-export const newApiKey = () => API_KEY_PREFIX + crypto.randomBytes(30).toString('base64url');
+export const KEY_SCOPES = ['full', 'finance'];
+export const newApiKey = (scope = 'full') => API_KEY_PREFIX + (scope === 'finance' ? 'fin_' : '') + crypto.randomBytes(30).toString('base64url');
 
 async function userFromApiKey(header) {
   const m = /^Bearer\s+(stl_[A-Za-z0-9_-]{20,})\s*$/.exec(header || '');
   if (!m) return null;
   const row = await db.get(
-    `SELECT t.id AS token_id, t.last_used_at, u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
+    `SELECT t.id AS token_id, t.last_used_at, t.scope AS token_scope, u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
     hashApiKey(m[1])
   );
   if (!row) return null;
   // Record use at most every 10 minutes (keeps writes down).
   const stale = !row.last_used_at || Date.now() - Date.parse(row.last_used_at + 'Z') > 10 * 60 * 1000;
   if (stale) db.run("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?", row.token_id).catch(() => {});
-  const { token_id: tokenId, last_used_at: _ignored, ...user } = row;
-  return { user, tokenId };
+  const { token_id: tokenId, last_used_at: _ignored, token_scope: scope, ...user } = row;
+  return { user, tokenId, scope: scope || 'full' };
+}
+
+/** Finance-connection keys are read-only: they only work on /api/finance. */
+export function blockFinanceKeys(req, _res, next) {
+  if (req.apiKeyScope === 'finance') {
+    return next(new HttpError(403, 'This is a finance connection key. It can only read your spending at /api/finance.'));
+  }
+  next();
 }
 
 /** Routes that must be done by a signed-in person, never with an API key. */
@@ -65,6 +74,7 @@ export async function requireAuth(req, _res, next) {
       if (!found) return next(new HttpError(401, 'That API key isn’t valid (it may have been revoked).'));
       req.user = found.user;
       req.apiKeyId = found.tokenId;
+      req.apiKeyScope = found.scope;
       return next();
     } catch (err) {
       return next(err);
@@ -196,7 +206,7 @@ authRouter.patch('/me', requireAuth, requireSession, async (req, res) => {
 
 // ---- API key management (signed-in session only) ---------------------------
 const MAX_KEYS = 10;
-const keyDto = (t) => ({ id: t.id, name: t.name, prefix: t.prefix, createdAt: t.created_at, lastUsedAt: t.last_used_at });
+const keyDto = (t) => ({ id: t.id, name: t.name, prefix: t.prefix, scope: t.scope || 'full', createdAt: t.created_at, lastUsedAt: t.last_used_at });
 
 authRouter.get('/api-keys', requireAuth, requireSession, requirePasswordSet, async (req, res) => {
   const rows = await db.all('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY id DESC', req.user.id);
@@ -204,13 +214,14 @@ authRouter.get('/api-keys', requireAuth, requireSession, requirePasswordSet, asy
 });
 
 authRouter.post('/api-keys', requireAuth, requireSession, requirePasswordSet, async (req, res) => {
-  const name = String(req.body.name || '').trim().slice(0, 40) || 'My AI assistant';
+  const scope = KEY_SCOPES.includes(req.body.scope) ? req.body.scope : 'full';
+  const name = String(req.body.name || '').trim().slice(0, 40) || (scope === 'finance' ? 'Finance tracker' : 'My AI assistant');
   const { n } = await db.get('SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = ?', req.user.id);
   if (n >= MAX_KEYS) throw new HttpError(400, `You can have up to ${MAX_KEYS} API keys. Revoke one first.`);
-  const key = newApiKey();
+  const key = newApiKey(scope);
   const info = await db.run(
-    'INSERT INTO api_tokens (user_id, name, token_hash, prefix) VALUES (?, ?, ?, ?)',
-    req.user.id, name, hashApiKey(key), key.slice(0, 10)
+    'INSERT INTO api_tokens (user_id, name, token_hash, prefix, scope) VALUES (?, ?, ?, ?, ?)',
+    req.user.id, name, hashApiKey(key), key.slice(0, scope === 'finance' ? 14 : 10), scope
   );
   const row = await db.get('SELECT * FROM api_tokens WHERE id = ?', info.lastInsertRowid);
   // The full key is shown exactly once.

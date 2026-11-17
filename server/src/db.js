@@ -181,6 +181,17 @@ CREATE TABLE IF NOT EXISTS expense_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_user ON expense_drafts(user_id);
 
+-- Change log for connected finance trackers: one row per person whose spending an
+-- expense create/edit/delete touched, written in the same transaction as the change.
+-- The ever-increasing id is the sync cursor (no clocks involved).
+CREATE TABLE IF NOT EXISTS finance_changes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  expense_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_finance_changes_user ON finance_changes(user_id, id);
+
 -- Personal API keys (for AI assistants via MCP, or scripts). Only a SHA-256 hash is stored.
 CREATE TABLE IF NOT EXISTS api_tokens (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,6 +199,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   name         TEXT NOT NULL,
   token_hash   TEXT NOT NULL UNIQUE,
   prefix       TEXT NOT NULL,                    -- first characters, to recognise a key
+  scope        TEXT NOT NULL DEFAULT 'full',     -- full (MCP/API) | finance (read-only spending feed)
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   last_used_at TEXT
 );
@@ -216,6 +228,7 @@ export function dbReady() {
     await addColumn('expenses', 'discount', 'INTEGER NOT NULL DEFAULT 0');
     await addColumn('expenses', 'discount_split', "TEXT NOT NULL DEFAULT 'proportional'");
     await addColumn('expense_splits', 'discount', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn('api_tokens', 'scope', "TEXT NOT NULL DEFAULT 'full'");
   })().catch((err) => {
     ready = null; // retry on the next request
     throw err;

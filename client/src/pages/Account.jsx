@@ -5,6 +5,7 @@ import { api } from '../lib/api.js';
 import { Avatar, Segmented, TopBar, useToast } from '../components/ui.jsx';
 import { PasswordInput } from './Login.jsx';
 import ApiKeys from '../components/ApiKeys.jsx';
+import FinanceConnect from '../components/FinanceConnect.jsx';
 
 function applyTheme(t) {
   try { localStorage.setItem('settlr-theme', t); } catch { /* private mode */ }
@@ -88,6 +89,8 @@ export default function Account() {
       </section>
 
       <ApiKeys />
+
+      <FinanceConnect />
 
       <section className="section">
         <div className="section-head"><h2>Appearance</h2></div>

@@ -38,7 +38,7 @@ export default function ApiKeys() {
   const [revoke, setRevoke] = useState(null);
   const mcpUrl = `${window.location.origin}/api/mcp`;
 
-  const load = () => api.get('/auth/api-keys').then((d) => setKeys(d.keys)).catch(() => setKeys([]));
+  const load = () => api.get('/auth/api-keys').then((d) => setKeys(d.keys.filter((k) => k.scope !== 'finance'))).catch(() => setKeys([]));
   useEffect(() => {
     load();
   }, []);

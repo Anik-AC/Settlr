@@ -138,6 +138,11 @@ export async function buildExpense(body, actorId) {
   };
 }
 
+/** Record that an expense changed for these people (finance tracker sync). */
+async function logFinanceChanges(q, expenseId, userIds) {
+  for (const uid of new Set(userIds)) await q.run('INSERT INTO finance_changes (user_id, expense_id) VALUES (?, ?)', uid, expenseId);
+}
+
 async function writeChildren(q, id, payers, splits) {
   await q.run('DELETE FROM expense_payers WHERE expense_id = ?', id);
   await q.run('DELETE FROM expense_splits WHERE expense_id = ?', id);
@@ -165,6 +170,7 @@ export async function createExpense(body, actorId) {
     );
     const id = info.lastInsertRowid;
     await writeChildren(q, id, payers, splits);
+    if (row.type === 'expense') await logFinanceChanges(q, id, splits.map((x) => x.userId));
     return id;
   });
 }
@@ -173,7 +179,10 @@ export async function updateExpense(id, body, actorId) {
   const existing = await db.get('SELECT * FROM expenses WHERE id = ?', id);
   if (!existing) throw new HttpError(404, 'Expense not found.');
   const { row, payers, splits } = await buildExpense({ ...body, type: existing.type }, actorId);
+  const before = (await db.all('SELECT user_id FROM expense_splits WHERE expense_id = ?', id)).map((r) => r.user_id);
   await tx(async (q) => {
+    // Everyone before or after the edit gets a change (their share changed, or it no longer counts).
+    if (existing.type === 'expense') await logFinanceChanges(q, id, [...before, ...splits.map((x) => x.userId)]);
     await q.run(
       `UPDATE expenses SET group_id=@group_id, description=@description, category=@category, notes=@notes,
          date=@date, subtotal=@subtotal, tax=@tax, tip=@tip, extras_split=@extras_split, discount=@discount, discount_split=@discount_split, total=@total, tax_mode=@tax_mode,
@@ -189,6 +198,13 @@ export async function updateExpense(id, body, actorId) {
 /** Delete expenses and their payer/split rows (no reliance on FK cascades). */
 export async function deleteExpenses(q, where, ...args) {
   const sub = `SELECT id FROM expenses WHERE ${where}`;
+  // Log a change for everyone these counted for, so their finance trackers drop them.
+  await q.run(
+    `INSERT INTO finance_changes (user_id, expense_id)
+     SELECT s.user_id, s.expense_id FROM expense_splits s JOIN expenses e ON e.id = s.expense_id
+     WHERE e.type = 'expense' AND s.expense_id IN (${sub})`,
+    ...args
+  );
   await q.run(`DELETE FROM expense_payers WHERE expense_id IN (${sub})`, ...args);
   await q.run(`DELETE FROM expense_splits WHERE expense_id IN (${sub})`, ...args);
   await q.run(`DELETE FROM expenses WHERE ${where}`, ...args);
