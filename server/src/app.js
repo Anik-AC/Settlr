@@ -10,23 +10,28 @@ import { HttpError } from './expenses.js';
 import { dbReady } from './db.js';
 
 /**
- * JSON body parser that also works on Vercel, whose Node runtime may already
- * have read (and parsed) the request body before Express sees it.
+ * JSON body parser that also works on Vercel.
+ *
+ * Vercel may hand Express a request whose body was already read upstream (then
+ * it exposes req.body / req.rawBody). Only treat the body as consumed when the
+ * stream really ended: `req.complete` just means "fully received", and an
+ * unread body is still there to parse. (Checking `complete` once made every
+ * route that awaited something first — MCP, bill scanning — lose its body.)
  */
 export function jsonBody(limit) {
   const parse = express.json({ limit });
   return (req, res, next) => {
-    if (req.readableEnded || req.complete) {
-      // Body already consumed upstream: use what the platform parsed.
-      try {
-        const b = req.body;
-        req.body = b && typeof b === 'object' && !Buffer.isBuffer(b) ? b : {};
-      } catch {
-        return next(new HttpError(400, 'That request body isn’t valid JSON.'));
-      }
-      return next();
+    if (!req.readableEnded) return parse(req, res, next);
+    try {
+      let b = req.body;
+      if (b === undefined && Buffer.isBuffer(req.rawBody)) b = req.rawBody.length ? JSON.parse(req.rawBody.toString('utf8')) : {};
+      else if (Buffer.isBuffer(b)) b = b.length ? JSON.parse(b.toString('utf8')) : {};
+      else if (typeof b === 'string') b = b ? JSON.parse(b) : {};
+      req.body = b && typeof b === 'object' ? b : {};
+    } catch {
+      return next(new HttpError(400, 'That request body isn’t valid JSON.'));
     }
-    parse(req, res, next);
+    next();
   };
 }
 
@@ -57,9 +62,10 @@ export function createApp() {
   app.use('/api', ensureDb);
   // Bill photos are bigger than normal JSON bodies, so this route parses its own body.
   // (Vercel caps request bodies at 4.5 MB; the client keeps photos under that.)
-  app.use('/api/receipts', requireAuth, blockFinanceKeys, requirePasswordSet, jsonBody('4.5mb'), receiptsRouter);
+  // Read bodies before any async auth check, so nothing can come between the request and the parser.
+  app.use('/api/receipts', jsonBody('4.5mb'), requireAuth, blockFinanceKeys, requirePasswordSet, receiptsRouter);
   // AI assistants (Claude etc.) connect here with a personal API key: Authorization: Bearer stl_…
-  app.use('/api/mcp', requireAuth, blockFinanceKeys, requirePasswordSet, jsonBody('1mb'), mcpRouter);
+  app.use('/api/mcp', jsonBody('1mb'), requireAuth, blockFinanceKeys, requirePasswordSet, mcpRouter);
   // Read-only spending feed for a connected finance tracker (finance key, any key, or a session).
   app.use('/api/finance/v1', requireAuth, requirePasswordSet, financeRouter);
   app.use(jsonBody('200kb'));
