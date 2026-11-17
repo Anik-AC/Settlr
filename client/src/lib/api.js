@@ -8,6 +8,10 @@ export class ApiError extends Error {
 
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
+// The server says this account still has a temporary password (e.g. it was reset
+// while the app was open): the auth layer switches to the "choose a password" screen.
+let onPasswordRequired = () => {};
+export const setPasswordRequiredHandler = (fn) => (onPasswordRequired = fn);
 
 async function request(method, path, body) {
   let res;
@@ -24,6 +28,7 @@ async function request(method, path, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/login')) onUnauthorized();
+    if (res.status === 403 && data.details?.code === 'password_change_required') onPasswordRequired();
     throw new ApiError(res.status, data.error || `Request failed (${res.status})`, data.details);
   }
   return data;

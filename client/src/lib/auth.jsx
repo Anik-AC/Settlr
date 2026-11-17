@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, setUnauthorizedHandler } from './api.js';
+import { api, setUnauthorizedHandler, setPasswordRequiredHandler } from './api.js';
 
 const AuthContext = createContext(null);
 
@@ -9,6 +9,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
+    setPasswordRequiredHandler(() => setUser((u) => (u && !u.mustChangePassword ? { ...u, mustChangePassword: true } : u)));
     api
       .get('/auth/me')
       .then((d) => setUser(d.user))
