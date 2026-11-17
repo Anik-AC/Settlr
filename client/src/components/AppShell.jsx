@@ -37,24 +37,30 @@ const NAV = [
   { to: '/activity', label: 'Activity', icon: Activity },
 ];
 
-/** How many AI-read bills are waiting for review (refreshed on navigation). */
-function usePendingReview() {
+/** Bills to review + others' activity since you last looked (refreshed on navigation). */
+function useActivityBadge() {
   const { pathname } = useLocation();
   const [count, setCount] = useState(0);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setTick((t) => t + 1);
+    window.addEventListener('settlr:badges', bump);
+    return () => window.removeEventListener('settlr:badges', bump);
+  }, []);
   useEffect(() => {
     let alive = true;
-    api.get('/drafts').then((d) => alive && setCount(d.count)).catch(() => {});
+    api.get('/badges').then((d) => alive && setCount(d.review + d.activity)).catch(() => {});
     return () => {
       alive = false;
     };
-  }, [pathname]);
+  }, [pathname, tick]);
   return count;
 }
 
 export default function AppShell() {
   const { user } = useAuth();
-  const pending = usePendingReview();
-  const badge = (to) => (to === '/activity' && pending > 0 ? <span className="nav-badge" aria-label={`${pending} to review`}>{pending}</span> : null);
+  const pending = useActivityBadge();
+  const badge = (to) => (to === '/activity' && pending > 0 ? <span className="nav-badge" aria-label={`${pending} new in Activity`}>{pending}</span> : null);
   return (
     <div className="shell">
       <aside className="sidebar" aria-label="Main navigation">

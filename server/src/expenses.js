@@ -144,6 +144,37 @@ async function logFinanceChanges(q, expenseId, userIds) {
   for (const uid of new Set(userIds)) await q.run('INSERT INTO finance_changes (user_id, expense_id) VALUES (?, ?)', uid, expenseId);
 }
 
+export const ACTIVITY_SOURCES = ['app', 'assistant', 'admin'];
+
+/** Append to the activity log (who did what to which expense, and when). */
+async function logActivity(q, { actorId, action, expense, involved, changes, source }) {
+  await q.run(
+    `INSERT INTO activity_log (actor_id, action, expense_id, expense_type, group_id, description, total, date, involved, details, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    actorId, action, expense.id, expense.type, expense.group_id ?? null, expense.description, expense.total, expense.date,
+    JSON.stringify([...new Set(involved)]), changes?.length ? JSON.stringify({ changes }) : null,
+    ACTIVITY_SOURCES.includes(source) ? source : 'app'
+  );
+}
+
+/** What an edit changed, in a form the app can describe ("Total $25.00 → $30.00"). */
+function diffExpense(old, row, payers, splits) {
+  const changes = [];
+  for (const field of ['description', 'total', 'date', 'category', 'group_id']) {
+    if ((old[field] ?? null) !== (row[field] ?? null)) changes.push({ field: field === 'group_id' ? 'group' : field, from: old[field] ?? null, to: row[field] ?? null });
+  }
+  const asMap = (list) => Object.fromEntries(list.filter((x) => x.amount > 0).map((x) => [x.userId, x.amount]));
+  const same = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => a[k] === b[k]);
+  const oldPayers = asMap(old.payers);
+  const newPayers = asMap(payers);
+  if (!same(oldPayers, newPayers)) changes.push({ field: 'payers', from: oldPayers, to: newPayers });
+  const oldShares = asMap(old.splits);
+  const newShares = asMap(splits);
+  if (!same(oldShares, newShares)) changes.push({ field: 'shares', from: oldShares, to: newShares });
+  if ((old.notes || '') !== (row.notes || '')) changes.push({ field: 'notes' });
+  return changes;
+}
+
 async function writeChildren(q, id, payers, splits) {
   await q.run('DELETE FROM expense_payers WHERE expense_id = ?', id);
   await q.run('DELETE FROM expense_splits WHERE expense_id = ?', id);
@@ -158,7 +189,7 @@ async function writeChildren(q, id, payers, splits) {
   }
 }
 
-export async function createExpense(body, actorId) {
+export async function createExpense(body, actorId, { source = 'app' } = {}) {
   // Validate (reads) first, then write everything in one transaction.
   const { row, payers, splits } = await buildExpense(body, actorId);
   return tx(async (q) => {
@@ -172,15 +203,20 @@ export async function createExpense(body, actorId) {
     const id = info.lastInsertRowid;
     await writeChildren(q, id, payers, splits);
     if (row.type === 'expense') await logFinanceChanges(q, id, splits.map((x) => x.userId));
+    await logActivity(q, {
+      actorId, action: 'created', source, expense: { ...row, id },
+      involved: [...payers.map((p) => p.userId), ...splits.map((x) => x.userId)],
+    });
     return id;
   });
 }
 
-export async function updateExpense(id, body, actorId) {
-  const existing = await db.get('SELECT * FROM expenses WHERE id = ?', id);
+export async function updateExpense(id, body, actorId, { source = 'app' } = {}) {
+  const existing = await getExpense(id);
   if (!existing) throw new HttpError(404, 'Expense not found.');
   const { row, payers, splits } = await buildExpense({ ...body, type: existing.type }, actorId);
-  const before = (await db.all('SELECT user_id FROM expense_splits WHERE expense_id = ?', id)).map((r) => r.user_id);
+  const before = existing.splits.map((x) => x.userId);
+  const changes = diffExpense(existing, row, payers, splits);
   await tx(async (q) => {
     // Everyone before or after the edit gets a change (their share changed, or it no longer counts).
     if (existing.type === 'expense') await logFinanceChanges(q, id, [...before, ...splits.map((x) => x.userId)]);
@@ -192,13 +228,31 @@ export async function updateExpense(id, body, actorId) {
       { ...row, id, updated_by: actorId }
     );
     await writeChildren(q, id, payers, splits);
+    if (changes.length) {
+      await logActivity(q, {
+        actorId, action: 'updated', source, changes, expense: { ...row, id },
+        involved: [...existing.payers.map((p) => p.userId), ...before, ...payers.map((p) => p.userId), ...splits.map((x) => x.userId)],
+      });
+    }
   });
   return id;
 }
 
-/** Delete expenses and their payer/split rows (no reliance on FK cascades). */
-export async function deleteExpenses(q, where, ...args) {
+/**
+ * Delete expenses and their payer/split rows (no reliance on FK cascades).
+ * `who` = { actorId, source } for the activity log.
+ */
+export async function deleteExpenses(q, who, where, ...args) {
   const sub = `SELECT id FROM expenses WHERE ${where}`;
+  // Activity: one "deleted" entry per expense, visible to everyone who was on it.
+  await q.run(
+    `INSERT INTO activity_log (actor_id, action, expense_id, expense_type, group_id, description, total, date, involved, source)
+     SELECT ?, 'deleted', e.id, e.type, e.group_id, e.description, e.total, e.date,
+       (SELECT json_group_array(user_id) FROM (SELECT user_id FROM expense_payers WHERE expense_id = e.id
+                                               UNION SELECT user_id FROM expense_splits WHERE expense_id = e.id)), ?
+     FROM expenses e WHERE ${where.replace(/\bid\b/g, 'e.id').replace(/\bgroup_id\b/g, 'e.group_id')}`,
+    who.actorId, ACTIVITY_SOURCES.includes(who.source) ? who.source : 'app', ...args
+  );
   // Log a change for everyone these counted for, so their finance trackers drop them.
   await q.run(
     `INSERT INTO finance_changes (user_id, expense_id)

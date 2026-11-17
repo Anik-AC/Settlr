@@ -183,6 +183,26 @@ CREATE TABLE IF NOT EXISTS expense_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_user ON expense_drafts(user_id);
 
+-- Who did what, when: every expense/payment added, edited or deleted. Kept after
+-- deletes so everyone involved can see them. "involved" = user ids at the time.
+CREATE TABLE IF NOT EXISTS activity_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id     INTEGER NOT NULL,
+  action       TEXT NOT NULL,                     -- created | updated | deleted
+  expense_id   INTEGER NOT NULL,
+  expense_type TEXT NOT NULL,                     -- expense | payment
+  group_id     INTEGER,
+  description  TEXT NOT NULL,
+  total        INTEGER NOT NULL,                  -- cents, after the action
+  date         TEXT NOT NULL,                     -- the bill date, after the action
+  involved     TEXT NOT NULL DEFAULT '[]',        -- JSON array of user ids
+  details      TEXT,                              -- JSON { changes: [...] } for edits
+  source       TEXT NOT NULL DEFAULT 'app',       -- app | assistant | admin
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_activity_group ON activity_log(group_id, id);
+CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity_log(actor_id, id);
+
 -- Change log for connected finance trackers: one row per person whose spending an
 -- expense create/edit/delete touched, written in the same transaction as the change.
 -- The ever-increasing id is the sync cursor (no clocks involved).
@@ -217,6 +237,10 @@ async function addColumn(table, column, ddl) {
   if (!cols.includes(column)) await db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }
 
+/** JSON array of everyone on an expense `e` (payers + split). */
+const INVOLVED_JSON = `(SELECT json_group_array(user_id) FROM (
+  SELECT user_id FROM expense_payers WHERE expense_id = e.id UNION SELECT user_id FROM expense_splits WHERE expense_id = e.id))`;
+
 let ready;
 /** Create/upgrade the schema once per process (cold start). */
 export function dbReady() {
@@ -233,6 +257,22 @@ export function dbReady() {
     await addColumn('api_tokens', 'scope', "TEXT NOT NULL DEFAULT 'full'");
     await addColumn('expenses', 'fees', 'INTEGER NOT NULL DEFAULT 0');
     await addColumn('expense_splits', 'fees', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn('users', 'activity_seen_id', 'INTEGER NOT NULL DEFAULT 0');
+    // One-time backfill of the activity log from what expenses already record
+    // (who added / last edited them, and when). A single statement, so two cold
+    // starts can't both fill it.
+    await db.run(`
+      INSERT INTO activity_log (actor_id, action, expense_id, expense_type, group_id, description, total, date, involved, source, created_at)
+      SELECT actor_id, action, expense_id, expense_type, group_id, description, total, date, involved, 'app', at FROM (
+        SELECT e.created_by AS actor_id, 'created' AS action, e.id AS expense_id, e.type AS expense_type, e.group_id, e.description,
+               e.total, e.date, ${INVOLVED_JSON} AS involved, e.created_at AS at
+          FROM expenses e
+        UNION ALL
+        SELECT e.updated_by, 'updated', e.id, e.type, e.group_id, e.description, e.total, e.date, ${INVOLVED_JSON}, e.updated_at
+          FROM expenses e WHERE e.updated_by IS NOT NULL
+      )
+      WHERE NOT EXISTS (SELECT 1 FROM activity_log)
+      ORDER BY at, expense_id`);
   })().catch((err) => {
     ready = null; // retry on the next request
     throw err;

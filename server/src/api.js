@@ -270,7 +270,7 @@ api.delete('/groups/:id', async (req, res) => {
     throw new HttpError(400, 'Settle all balances in this group before deleting it.');
   }
   await tx(async (q) => {
-    await deleteExpenses(q, 'group_id = ?', group.id);
+    await deleteExpenses(q, { actorId: req.user.id }, 'group_id = ?', group.id);
     await q.run('DELETE FROM group_members WHERE group_id = ?', group.id);
     await q.run('DELETE FROM groups WHERE id = ?', group.id);
   });
@@ -299,6 +299,101 @@ api.delete('/groups/:id/members/:userId', async (req, res) => {
 // ---------------------------------------------------------------------------
 // Expenses & payments
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Activity log: who added / edited / deleted what, and when
+// ---------------------------------------------------------------------------
+
+/** Entries a user may see: their groups' activity, plus anything they were part of. */
+const ACTIVITY_VISIBLE = `(
+  a.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)
+  OR EXISTS (SELECT 1 FROM json_each(a.involved) WHERE value = ?)
+)`;
+
+function activityDto(a) {
+  let details = null;
+  try {
+    details = a.details ? JSON.parse(a.details) : null;
+  } catch {
+    details = null;
+  }
+  return {
+    id: a.id,
+    at: a.created_at,
+    action: a.action,
+    actorId: a.actor_id,
+    source: a.source,
+    expenseId: a.expense_id,
+    expenseType: a.expense_type,
+    exists: !!a.still_exists,
+    groupId: a.group_id,
+    groupName: a.group_name || null,
+    description: a.description,
+    total: a.total,
+    date: a.date,
+    involved: JSON.parse(a.involved || '[]'),
+    changes: details?.changes || [],
+  };
+}
+
+api.get('/activity', async (req, res) => {
+  const me = req.user.id;
+  const where = [ACTIVITY_VISIBLE];
+  const params = [me, me];
+  if (req.query.scope === 'mine') {
+    where.push('a.actor_id = ?');
+    params.push(me);
+  }
+  if (req.query.q) {
+    where.push('a.description LIKE ?');
+    params.push(`%${String(req.query.q).trim()}%`);
+  }
+  if (int(req.query.before) > 0) {
+    where.push('a.id < ?');
+    params.push(int(req.query.before));
+  }
+  const limit = Math.min(int(req.query.limit) || 50, 200);
+  const rows = await db.all(
+    `SELECT a.*, g.name AS group_name, EXISTS (SELECT 1 FROM expenses e WHERE e.id = a.expense_id) AS still_exists
+     FROM activity_log a LEFT JOIN groups g ON g.id = a.group_id
+     WHERE ${where.join(' AND ')} ORDER BY a.id DESC LIMIT ?`,
+    ...params, limit + 1
+  );
+  const entries = rows.slice(0, limit).map(activityDto);
+  const ids = entries.flatMap((e) => [
+    e.actorId, ...e.involved,
+    ...e.changes.flatMap((c) => (c.field === 'shares' || c.field === 'payers' ? [...Object.keys(c.from || {}), ...Object.keys(c.to || {})].map(Number) : [])),
+  ]);
+  const groupIds = entries.flatMap((e) => e.changes.filter((c) => c.field === 'group').flatMap((c) => [c.from, c.to])).filter(Boolean);
+  res.json({
+    entries,
+    hasMore: rows.length > limit,
+    people: await peopleMap(ids),
+    groupNames: await groupNames(groupIds),
+    seenId: (await db.get('SELECT activity_seen_id AS s FROM users WHERE id = ?', me))?.s || 0,
+  });
+});
+
+/** Mark activity as seen up to an id (clears the badge). */
+api.post('/activity/seen', async (req, res) => {
+  const upTo = int(req.body.upTo) || 0;
+  await db.run('UPDATE users SET activity_seen_id = MAX(activity_seen_id, ?) WHERE id = ?', upTo, req.user.id);
+  res.json({ ok: true });
+});
+
+/** Counts for the nav badge: bills to review + others' activity since last look. */
+api.get('/badges', async (req, res) => {
+  const me = req.user.id;
+  const [{ n: review }, { n: activity }] = await Promise.all([
+    db.get('SELECT COUNT(*) AS n FROM expense_drafts WHERE user_id = ?', me),
+    db.get(
+      `SELECT COUNT(*) AS n FROM activity_log a
+       WHERE ${ACTIVITY_VISIBLE} AND a.actor_id != ? AND a.id > (SELECT activity_seen_id FROM users WHERE id = ?)`,
+      me, me, me, me
+    ),
+  ]);
+  res.json({ review, activity });
+});
 
 // ---------------------------------------------------------------------------
 // Drafts (bills an AI assistant read, waiting for review)
@@ -347,7 +442,7 @@ api.get('/expenses', async (req, res) => {
 });
 
 api.post('/expenses', async (req, res) => {
-  const id = await createExpense(req.body, req.user.id);
+  const id = await createExpense(req.body, req.user.id, { source: req.apiKeyId ? 'assistant' : 'app' });
   // Saving a reviewed draft clears it from the review queue.
   if (req.body.draftId) await deleteDraft(int(req.body.draftId), req.user.id);
   const e = await getExpense(id);
@@ -368,13 +463,13 @@ api.get('/expenses/:id', async (req, res) => {
 
 api.put('/expenses/:id', async (req, res) => {
   await loadVisibleExpense(req.params.id, req.user.id);
-  const id = await updateExpense(int(req.params.id), req.body, req.user.id);
+  const id = await updateExpense(int(req.params.id), req.body, req.user.id, { source: req.apiKeyId ? 'assistant' : 'app' });
   const e = await getExpense(id);
   res.json({ expense: serializeExpense(e), people: await peopleMap(expenseUserIds([e])) });
 });
 
 api.delete('/expenses/:id', async (req, res) => {
   const e = await loadVisibleExpense(req.params.id, req.user.id);
-  await tx((q) => deleteExpenses(q, 'id = ?', e.id));
+  await tx((q) => deleteExpenses(q, { actorId: req.user.id, source: req.apiKeyId ? 'assistant' : 'app' }, 'id = ?', e.id));
   res.json({ ok: true });
 });

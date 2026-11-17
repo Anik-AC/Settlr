@@ -207,7 +207,7 @@ function buildServer(me) {
       // Single payer covers the whole computed total (tax/tip/discount included).
       const total = computeSplit({ ...body, amount }).total;
       body.payers = [{ userId: payer, amount: total }];
-      const id = await createExpense(body, me.id);
+      const id = await createExpense(body, me.id, { source: 'assistant' });
       return { added: await summarize(await getExpense(id)) };
     })
   );
@@ -368,7 +368,8 @@ function buildServer(me) {
           date: a.date || todayToronto(),
           notes: a.note || '',
         },
-        me.id
+        me.id,
+        { source: 'assistant' }
       );
       return { recorded: await summarize(await getExpense(id)) };
     })
@@ -387,7 +388,7 @@ function buildServer(me) {
       if (!e || !(await canView(e, me.id))) throw new HttpError(404, 'Expense not found.');
       if (e.created_by !== me.id) throw new HttpError(403, 'You can only delete entries you added. Ask the person who added it, or use the app.');
       const gone = await summarize(e);
-      await tx((q) => deleteExpenses(q, 'id = ?', e.id));
+      await tx((q) => deleteExpenses(q, { actorId: me.id, source: 'assistant' }, 'id = ?', e.id));
       return { deleted: gone };
     })
   );

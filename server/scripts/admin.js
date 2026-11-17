@@ -151,7 +151,7 @@ async function addExpense(groupName) {
   }
   const names = (await db.all(`SELECT username FROM users WHERE id IN (${split.map(() => '?').join(',')})`, ...split)).map((r) => '@' + r.username);
   if (!willWrite) return console.log(`  (dry run) ${date}  ${desc}  ${formatCAD(cents)}  split ${names.join(', ')}`);
-  const id = await createExpense(body, payer);
+  const id = await createExpense(body, payer, { source: 'admin' });
   console.log(`  ✓ #${id}  ${date}  ${desc}  ${formatCAD(cents)}  [${category}]  split ${names.join(', ')}`);
 }
 
