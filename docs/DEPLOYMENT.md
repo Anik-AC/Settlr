@@ -171,16 +171,16 @@ password** and must choose their own the first time they sign in (the app is loc
 
 ```bash
 npm run admin -- list                                           # users + groups
-npm run admin -- add-user Iron-man "Iron-man" --yes             # prints a temporary password
-npm run admin -- reset-password iron-man --yes                  # forgot password → new temporary one
-npm run admin -- add-group "Wow-CN-Tower" onix ai-man iron-man --yes
-npm run admin -- add-expense "Wow-CN-Tower" --desc "Lyft" --amount 7.53 --paid-by onix \
-  --split onix,ai-man,iron-man --date 2026-11-06 --category transport --yes   # tax included, equal split
+npm run admin -- add-user Taylor "Taylor" --yes                 # prints a temporary password
+npm run admin -- reset-password taylor --yes                    # forgot password → new temporary one
+npm run admin -- add-group "Weekend Trip" alex sam taylor --yes
+npm run admin -- add-expense "Weekend Trip" --desc "Pizza" --amount 24.50 --paid-by alex \
+  --split alex,sam,taylor --date 2026-01-15 --category dining --yes   # tax included, equal split
 ```
 
 - It uses `DATABASE_URL` / `DATABASE_AUTH_TOKEN` from your environment or `.env`. With a remote
   (Turso) database it only shows what it *would* do unless you add `--yes`.
-- Usernames are case-insensitive (`Onix` signs in as `onix`). Re-running is safe: existing users
+- Usernames are case-insensitive (`Taylor` signs in as `taylor`). Re-running is safe: existing users
   and groups are skipped.
 - Send each temporary password privately; it stops working once they've set their own.
 
@@ -195,7 +195,7 @@ Each person can let their own AI assistant add expenses and check balances for t
    URL `https://settlr.onixpace.com/api/mcp`, and under **Request headers** add
    `Authorization: Bearer stl_…`. Choose "No sign in".
    Claude Code: `claude mcp add --transport http settlr https://settlr.onixpace.com/api/mcp --header "Authorization: Bearer stl_…"`
-3. Ask things like "add $24.50 pizza to Wow-CN-Tower, split equally, I paid" or "what do I owe?".
+3. Ask things like "add $24.50 pizza to Weekend Trip, split equally, I paid" or "what do I owe?".
 4. **Bill photos:** attach a receipt or DoorDash screenshots in Claude and say "add this bill to Settlr".
    Claude reads it and saves a draft; in Settlr it appears under **Activity → To review** (with a badge
    and a Home banner). Open it, tap who had each item, and save. Drafts don't affect balances until saved.

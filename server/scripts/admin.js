@@ -6,8 +6,8 @@
  *   npm run admin -- add-user <username> ["Display Name"]      temp password, must change on first login
  *   npm run admin -- reset-password <username>                 new temp password, must change on login
  *   npm run admin -- add-group "<Group name>" <owner> [member ...]
- *   npm run admin -- add-expense "<Group name>" --desc "Lyft" --amount 7.53 --paid-by onix
- *        [--split onix,ai-man] [--date 2026-11-06] [--category transport]   (tax included, split equally)
+ *   npm run admin -- add-expense "<Group name>" --desc "Pizza" --amount 24.50 --paid-by alex
+ *        [--split alex,sam] [--date 2026-11-06] [--category transport]   (tax included, split equally)
  *
  * Uses the same database settings as the app: DATABASE_URL / DATABASE_AUTH_TOKEN
  * from the environment or the repo-root .env (production Turso), otherwise the
@@ -172,7 +172,7 @@ const HELP = `Usage:
   npm run admin -- add-user <username> ["Display Name"]
   npm run admin -- reset-password <username>
   npm run admin -- add-group "<Group name>" <owner> [member ...]
-  npm run admin -- add-expense "<Group>" --desc "Lyft" --amount 7.53 --paid-by onix [--split a,b] [--date YYYY-MM-DD] [--category transport]
+  npm run admin -- add-expense "<Group>" --desc "Pizza" --amount 24.50 --paid-by alex [--split a,b] [--date YYYY-MM-DD] [--category transport]
 Add --yes to apply changes to a remote (production) database.`;
 
 if (!cmd || cmd === 'help' || cmd === '--help') {

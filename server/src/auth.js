@@ -24,8 +24,14 @@ function inviteMatches(given) {
   return want.length === got.length && crypto.timingSafeEqual(want, got);
 }
 
+/**
+ * Sessions carry a fingerprint of the current password hash, so changing or
+ * resetting a password signs out every other device.
+ */
+const passwordVersion = (user) => crypto.createHash('sha256').update(String(user.password_hash)).digest('hex').slice(0, 12);
+
 function setSession(res, user) {
-  const token = jwt.sign({ sub: user.id }, getSecret(), { expiresIn: '60d' });
+  const token = jwt.sign({ sub: user.id, pv: passwordVersion(user) }, getSecret(), { expiresIn: '60d' });
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: SECURE, maxAge: MAX_AGE, path: '/' });
 }
 
@@ -84,8 +90,9 @@ export async function requireAuth(req, _res, next) {
   const token = req.cookies?.[COOKIE];
   if (!token) return next(new HttpError(401, 'Please sign in.'));
   let sub;
+  let pv;
   try {
-    ({ sub } = jwt.verify(token, getSecret()));
+    ({ sub, pv } = jwt.verify(token, getSecret()));
   } catch (err) {
     if (err instanceof jwt.JsonWebTokenError || err instanceof jwt.TokenExpiredError) {
       return next(new HttpError(401, 'Your session expired. Please sign in again.'));
@@ -95,6 +102,7 @@ export async function requireAuth(req, _res, next) {
   try {
     const user = await getUserById(sub);
     if (!user) return next(new HttpError(401, 'Please sign in.'));
+    if (pv !== passwordVersion(user)) return next(new HttpError(401, 'Your password was changed. Please sign in again.'));
     req.user = user;
     next();
   } catch (err) {
@@ -113,17 +121,27 @@ export function requirePasswordSet(req, _res, next) {
   next();
 }
 
-// Small in-memory limiter for login attempts. On serverless each instance keeps
-// its own counts, so this slows down guessing rather than stopping it outright.
-const attempts = new Map();
-function throttle(key) {
-  const now = Date.now();
-  const rec = attempts.get(key) || { n: 0, t: now };
-  if (now - rec.t > 10 * 60 * 1000) Object.assign(rec, { n: 0, t: now });
-  rec.n += 1;
-  attempts.set(key, rec);
-  if (rec.n > 20) throw new HttpError(429, 'Too many attempts. Try again in a few minutes.');
+// ---------------------------------------------------------------------------
+// Rate limiting failed attempts, stored in the database so it holds across all
+// serverless instances. Windows are 15 minutes.
+// ---------------------------------------------------------------------------
+const WINDOW = "datetime('now', '-15 minutes')";
+const LIMITS = { user: 10, ip: 30, 'invite-ip': 10 };
+
+async function tooManyFailures(...keys) {
+  for (const key of keys) {
+    const kind = key.slice(0, key.lastIndexOf(':'));
+    const { n } = await db.get(`SELECT COUNT(*) AS n FROM auth_failures WHERE key = ? AND created_at > ${WINDOW}`, key);
+    if (n >= LIMITS[kind]) return true;
+  }
+  return false;
 }
+async function recordFailure(...keys) {
+  for (const key of keys) await db.run('INSERT INTO auth_failures (key) VALUES (?)', key);
+  // Keep the table small.
+  await db.run("DELETE FROM auth_failures WHERE created_at < datetime('now', '-1 day')");
+}
+const TOO_MANY = () => new HttpError(429, 'Too many attempts. Wait 15 minutes and try again.');
 
 export const authRouter = Router();
 
@@ -132,11 +150,13 @@ authRouter.get('/config', (_req, res) => {
 });
 
 authRouter.post('/register', async (req, res) => {
-  throttle(`reg:${req.ip}`);
+  const ipKey = `invite-ip:${req.ip}`;
+  if (inviteCode() && (await tooManyFailures(ipKey))) throw TOO_MANY();
   const username = String(req.body.username || '').trim().replace(/^@/, '');
   const displayName = String(req.body.displayName || '').trim().slice(0, 40);
   const password = String(req.body.password || '');
   if (inviteCode() && !inviteMatches(req.body.inviteCode)) {
+    await recordFailure(ipKey);
     throw new HttpError(403, 'That invite code isn’t right. Ask the friend who sent you the link.');
   }
   if (!USERNAME_RE.test(username)) {
@@ -156,9 +176,12 @@ authRouter.post('/register', async (req, res) => {
 });
 
 authRouter.post('/login', async (req, res) => {
-  throttle(req.ip);
-  const user = await getUserByUsername(req.body.username);
+  const name = String(req.body.username || '').trim().replace(/^@/, '').toLowerCase().slice(0, 40);
+  const keys = [`user:${name}`, `ip:${req.ip}`];
+  if (await tooManyFailures(...keys)) throw TOO_MANY();
+  const user = await getUserByUsername(name);
   if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
+    await recordFailure(...keys);
     throw new HttpError(401, 'That username and password don’t match.');
   }
   setSession(res, user);
@@ -201,6 +224,9 @@ authRouter.patch('/me', requireAuth, requireSession, async (req, res) => {
       'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
       await bcrypt.hash(String(newPassword), 10), req.user.id
     );
+    // Other devices are now signed out (their session has the old password's
+    // fingerprint); keep this one signed in with a fresh session.
+    setSession(res, await getUserById(req.user.id));
   }
   res.json({ user: selfUser(await getUserById(req.user.id)) });
 });

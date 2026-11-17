@@ -47,7 +47,7 @@ the browser could be stolen. Keep the token in the server's database (encrypted)
 ### `GET /me`
 
 ```json
-{ "user": { "id": 1, "username": "onix", "displayName": "Onix" }, "currency": "CAD", "connection": "finance" }
+{ "user": { "id": 1, "username": "alex", "displayName": "Alex" }, "currency": "CAD", "connection": "finance" }
 ```
 
 ### `GET /transactions?since=<cursor>&limit=<n>`
@@ -68,14 +68,14 @@ The sync feed. `limit` defaults to 500 (max 1000).
       "date": "2026-11-10",
       "description": "Groceries",
       "category": "groceries",
-      "group": "Wow-CN-Tower",
+      "group": "Weekend Trip",
       "amount": "10.00",
       "amount_cents": 1000,
       "currency": "CAD",
       "breakdown_cents": { "items": 1000, "tax": 0, "tip": 0, "fees": 0, "discount": 0 },
       "expense_total_cents": 2500,
       "you_paid_cents": 0,
-      "paid_by": [{ "username": "ben", "amount_cents": 2500 }],
+      "paid_by": [{ "username": "sam", "amount_cents": 2500 }],
       "created_at": "2026-11-17T08:14:01Z",
       "updated_at": "2026-11-17T08:14:01Z"
     }

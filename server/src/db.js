@@ -214,6 +214,15 @@ CREATE TABLE IF NOT EXISTS finance_changes (
 );
 CREATE INDEX IF NOT EXISTS idx_finance_changes_user ON finance_changes(user_id, id);
 
+-- Failed sign-in / invite-code attempts, for rate limiting across all server
+-- instances (an in-memory counter doesn't hold on serverless).
+CREATE TABLE IF NOT EXISTS auth_failures (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  key        TEXT NOT NULL,                      -- e.g. user:alex, ip:1.2.3.4, invite-ip:1.2.3.4
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_auth_failures_key ON auth_failures(key, created_at);
+
 -- Personal API keys (for AI assistants via MCP, or scripts). Only a SHA-256 hash is stored.
 CREATE TABLE IF NOT EXISTS api_tokens (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,

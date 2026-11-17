@@ -88,7 +88,7 @@ export default function ApiKeys() {
                 <li>Open <strong>Settings → Connectors</strong> (Customize → Connectors) and choose <strong>Add custom connector</strong>.</li>
                 <li>Name it <strong>Settlr</strong> and paste the server URL above.</li>
                 <li>Under <strong>Request headers</strong>, add <code>Authorization</code> with the value <code>Bearer &lt;your API key&gt;</code>. Choose “No sign in”.</li>
-                <li>Enable Settlr in a chat and ask, e.g. “Add $24.50 for pizza to Wow-CN-Tower, split equally, I paid.”</li>
+                <li>Enable Settlr in a chat and ask, e.g. “Add $24.50 for pizza to our trip group, split equally, I paid.”</li>
               </ol>
             </details>
             <details className="api-help">
