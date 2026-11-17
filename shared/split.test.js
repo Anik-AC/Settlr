@@ -149,3 +149,17 @@ test('bill-level coupon discount: by portion (default) and equally', () => {
   const tooBig = computeSplit({ discount: 5000, split: { method: 'itemized', items } });
   assert.ok(tooBig.errors.length);
 });
+
+test('order fees (service/delivery) are shared like the tip', () => {
+  const items = [
+    { name: 'Burrito', amount: 3000, userIds: [1] },
+    { name: 'Nachos', amount: 1000, userIds: [2] },
+  ];
+  const eq = computeSplit({ fees: 900, tip: 300, extrasSplit: 'equal', split: { method: 'itemized', items } });
+  assert.deepEqual(eq.errors, []);
+  assert.equal(eq.total, 4000 + 900 + 300);
+  assert.deepEqual(eq.shares.map((s) => s.fees), [450, 450]);
+  const prop = computeSplit({ fees: 900, split: { method: 'itemized', items } });
+  assert.deepEqual(prop.shares.map((s) => s.fees), [675, 225]);
+  assert.equal(sum(prop.shares.map((s) => s.amount)), prop.total);
+});

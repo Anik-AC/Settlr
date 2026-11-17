@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   tax          INTEGER NOT NULL DEFAULT 0,       -- cents
   tip          INTEGER NOT NULL DEFAULT 0,       -- cents
   extras_split TEXT NOT NULL DEFAULT 'proportional', -- proportional | equal (tax + tip)
+  fees         INTEGER NOT NULL DEFAULT 0,       -- cents, order fees (service/delivery), shared like tip
   discount     INTEGER NOT NULL DEFAULT 0,       -- cents, bill-level coupon/promo
   discount_split TEXT NOT NULL DEFAULT 'proportional', -- proportional | equal
   total        INTEGER NOT NULL,                 -- cents
@@ -164,6 +165,7 @@ CREATE TABLE IF NOT EXISTS expense_splits (
   base       INTEGER NOT NULL DEFAULT 0,
   tax        INTEGER NOT NULL DEFAULT 0,
   tip        INTEGER NOT NULL DEFAULT 0,
+  fees       INTEGER NOT NULL DEFAULT 0,
   discount   INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (expense_id, user_id)
 );
@@ -229,6 +231,8 @@ export function dbReady() {
     await addColumn('expenses', 'discount_split', "TEXT NOT NULL DEFAULT 'proportional'");
     await addColumn('expense_splits', 'discount', 'INTEGER NOT NULL DEFAULT 0');
     await addColumn('api_tokens', 'scope', "TEXT NOT NULL DEFAULT 'full'");
+    await addColumn('expenses', 'fees', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn('expense_splits', 'fees', 'INTEGER NOT NULL DEFAULT 0');
   })().catch((err) => {
     ready = null; // retry on the next request
     throw err;

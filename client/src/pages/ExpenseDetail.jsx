@@ -134,8 +134,8 @@ export default function ExpenseDetail() {
                           {[
                             pct != null && `${pct}%`,
                             shares != null && `${shares} ${Number(shares) === 1 ? 'share' : 'shares'}`,
-                            s.tax || s.tip || s.discount
-                              ? [formatCAD(s.base), s.tax && `+ ${formatCAD(s.tax)} tax`, s.tip && `+ ${formatCAD(s.tip)} tip`, s.discount && `− ${formatCAD(s.discount)} off`].filter(Boolean).join(' ')
+                            s.tax || s.tip || s.fees || s.discount
+                              ? [formatCAD(s.base), s.tax && `+ ${formatCAD(s.tax)} tax`, s.tip && `+ ${formatCAD(s.tip)} tip`, s.fees && `+ ${formatCAD(s.fees)} fees`, s.discount && `− ${formatCAD(s.discount)} off`].filter(Boolean).join(' ')
                               : null,
                           ]
                             .filter(Boolean)
@@ -170,16 +170,17 @@ export default function ExpenseDetail() {
               )}
 
               <div style={{ marginTop: 10 }}>
-                {(e.tax > 0 || e.tip > 0 || e.discount > 0) && (
+                {(e.tax > 0 || e.tip > 0 || e.fees > 0 || e.discount > 0) && (
                   <div className="receipt-line"><span className="k">Subtotal</span><span className="v">{formatCAD(e.subtotal)}</span></div>
                 )}
                 {e.tax > 0 && <div className="receipt-line"><span className="k">{taxLabel(e)}</span><span className="v">{formatCAD(e.tax)}</span></div>}
                 {e.tip > 0 && <div className="receipt-line"><span className="k">Tip</span><span className="v">{formatCAD(e.tip)}</span></div>}
+                {e.fees > 0 && <div className="receipt-line"><span className="k">Fees</span><span className="v">{formatCAD(e.fees)}</span></div>}
                 {e.discount > 0 && (
                   <div className="receipt-line"><span className="k">Discount{e.discountSplit === 'equal' ? ' (split equally)' : ''}</span><span className="v pos">−{formatCAD(e.discount)}</span></div>
                 )}
-                {(e.tax > 0 || e.tip > 0) && e.extrasSplit === 'equal' && (
-                  <div className="receipt-line"><span className="k muted">{[e.tax > 0 && 'tax', e.tip > 0 && 'tip'].filter(Boolean).join(' & ').replace(/^./, (c) => c.toUpperCase())} split equally</span><span className="v" /></div>
+                {(e.tax > 0 || e.tip > 0 || e.fees > 0) && e.extrasSplit === 'equal' && (
+                  <div className="receipt-line"><span className="k muted">{[e.tax > 0 && 'tax', e.tip > 0 && 'tip', e.fees > 0 && 'fees'].filter(Boolean).join(' & ').replace(/^./, (c) => c.toUpperCase())} split equally</span><span className="v" /></div>
                 )}
                 {e.taxMode === 'included' && <div className="receipt-line"><span className="k muted">Tax included in amount</span><span className="v" /></div>}
                 <div className="receipt-line total"><span className="k">Total</span><span className="v">{formatCAD(e.total)}</span></div>

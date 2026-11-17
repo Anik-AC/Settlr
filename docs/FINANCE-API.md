@@ -12,7 +12,7 @@ For every expense a person is part of, Settlr reports **their share**, not what 
 | Groceries $25, A's share $10, B's $15 | B | **$10** groceries, on the bill's date |
 | Movie $60 split 3 ways | A | **$20** entertainment, on the bill's date |
 
-- The share already includes the person's part of tax and tip, minus their part of any coupon.
+- The share already includes the person's part of tax, tip and order fees (service/delivery), minus their part of any coupon.
 - The date is the **bill date** (what the expense says), not when it was added to Settlr.
   Someone can add last week's groceries today; the tracker gets them dated last week.
 - **Settle-up payments** ("B paid A back $10") are transfers, not spending, so they are not reported.
@@ -72,7 +72,7 @@ The sync feed. `limit` defaults to 500 (max 1000).
       "amount": "10.00",
       "amount_cents": 1000,
       "currency": "CAD",
-      "breakdown_cents": { "items": 1000, "tax": 0, "tip": 0, "discount": 0 },
+      "breakdown_cents": { "items": 1000, "tax": 0, "tip": 0, "fees": 0, "discount": 0 },
       "expense_total_cents": 2500,
       "you_paid_cents": 0,
       "paid_by": [{ "username": "ben", "amount_cents": 2500 }],

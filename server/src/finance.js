@@ -54,7 +54,7 @@ function toTransaction(e, userId, people) {
     amount: dollars(share.amount),
     amount_cents: share.amount,
     currency: CURRENCY,
-    breakdown_cents: { items: share.base, tax: share.tax, tip: share.tip || 0, discount: share.discount || 0 },
+    breakdown_cents: { items: share.base, tax: share.tax, tip: share.tip || 0, fees: share.fees || 0, discount: share.discount || 0 },
     expense_total_cents: e.total,
     you_paid_cents: youPaid,
     paid_by: e.payers.map((p) => ({ username: people[p.userId]?.username || null, amount_cents: p.amount })),

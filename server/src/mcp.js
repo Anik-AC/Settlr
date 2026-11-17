@@ -107,7 +107,9 @@ function buildServer(me) {
     {
       title: 'Add an expense',
       description:
-        'Adds a shared expense, as you. Amounts are in CAD dollars. For an equal split give `amount` and optionally `split_between` (defaults to everyone in the group). ' +
+        'Adds a shared expense, as you. Amounts are in CAD dollars. ' +
+        'If the user shares a photo or screenshot of a bill/receipt, use add_bill_for_review instead (so they can assign items in the app), unless they explicitly ask to split it equally right away. ' +
+        'For an equal split give `amount` and optionally `split_between` (defaults to everyone in the group). ' +
         'For a receipt where people had different things, give `items` instead of `amount` (each item lists who shared it). ' +
         'By default the amount already includes tax (tax_mode "included"). Prefer a group; for a non-group expense, list usernames in `split_between` and include yourself.',
       inputSchema: {
@@ -130,8 +132,9 @@ function buildServer(me) {
         tax_mode: z.enum(['included', 'percent', 'amount']).optional().describe('"included" (default): amounts already include tax. "percent": add tax_value %. "amount": add tax_value dollars.'),
         tax_value: z.number().nonnegative().optional(),
         tip: money.optional().describe('Tip in dollars, added on top.'),
+        fees: money.optional().describe('Order fees in dollars (service, delivery, small-order), added on top and shared like the tip.'),
         discount: money.optional().describe('Coupon/promo on the whole bill, in dollars, taken off the total.'),
-        tax_tip_split: z.enum(['proportional', 'equal']).optional().describe('How tax and tip are shared. Default "proportional".'),
+        tax_tip_split: z.enum(['proportional', 'equal']).optional().describe('How tax, tip and fees are shared. Default "proportional".'),
         discount_split: z.enum(['proportional', 'equal']).optional().describe('How the discount is shared. Default "proportional".'),
         notes: z.string().max(1000).optional(),
       },
@@ -169,6 +172,7 @@ function buildServer(me) {
         amount,
         tax: { mode: taxMode, value: taxMode === 'amount' ? toCents(a.tax_value || 0) : a.tax_value || 0 },
         tip: toCents(a.tip || 0),
+        fees: toCents(a.fees || 0),
         extrasSplit: a.tax_tip_split || 'proportional',
         discount: toCents(a.discount || 0),
         discountSplit: a.discount_split || 'proportional',
@@ -187,11 +191,11 @@ function buildServer(me) {
     {
       title: 'Add a bill for review',
       description:
-        'Use this when the user shares a photo or screenshot of a bill/receipt (restaurant, groceries, DoorDash/Uber Eats order) and wants it in Settlr. ' +
+        'Use this whenever the user shares a photo or screenshot of a bill/receipt (restaurant, groceries, DoorDash/Uber Eats order) and wants it in Settlr — prefer it over add_expense for bills. ' +
         'Read the image yourself and send every line item. Settlr saves it as a draft in the user\'s "To review" list; they then assign who had which items in the app and save it. Nothing is added to balances until they do. ' +
         'Rules: `amount` is the LINE TOTAL charged (quantity already multiplied in) and `quantity` is the count on that line. ' +
         'Subtract item-specific discounts from that item; put a coupon/promo on the whole order in `discount`. ' +
-        'Tax lines (GST/HST/PST…) go in `tax`, tips/gratuity/Dasher tip in `tip` — not as items. Delivery/service/bag fees ARE items (minus any fee discount, drop a fee that ends at 0). ' +
+        'Tax lines (GST/HST/PST…) go in `tax`, tips/gratuity/Dasher tip in `tip`, and service/delivery/small-order fees in `fees` (after any fee discount such as DashPass) — none of these are items. Bag fees and bottle deposits ARE items. ' +
         'Leave out out-of-stock/refunded items and payment lines. Send `bill_total` (the final amount charged) so Settlr can check the numbers. ' +
         'If several images are parts of one bill, combine them and list overlapping lines only once. After calling, give the user the review link.',
       inputSchema: {
@@ -206,6 +210,7 @@ function buildServer(me) {
           .max(100),
         tax: money.optional(),
         tip: money.optional(),
+        fees: money.optional().describe('Service + delivery + small-order fees, after fee discounts.'),
         discount: money.optional().describe('Order-level coupon/promo, positive dollars.'),
         bill_total: money.optional().describe('Final amount charged on the bill, for checking.'),
         date: dateSchema.optional().describe('Bill date (YYYY-MM-DD). Defaults to today.'),
@@ -228,7 +233,7 @@ function buildServer(me) {
         merchant: a.merchant,
         date: a.date,
         items: a.items.map((it) => ({ name: it.name, quantity: it.quantity, price: it.amount })),
-        tax: a.tax, tip: a.tip, discount: a.discount, total: a.bill_total,
+        tax: a.tax, tip: a.tip, fees: a.fees, discount: a.discount, total: a.bill_total,
       });
       if (!r.items.length) throw new HttpError(400, 'No usable items. Each item needs a name and a positive amount.');
       const date = a.date || todayToronto();
@@ -237,7 +242,7 @@ function buildServer(me) {
         description: a.merchant,
         date,
         data: {
-          items: r.items, tax: r.tax, tip: r.tip, discount: r.discount, billTotal: r.billTotal,
+          items: r.items, tax: r.tax, tip: r.tip, fees: r.fees, discount: r.discount, billTotal: r.billTotal,
           paidBy, category: a.category || null, notes: a.notes || '', warnings: r.warnings,
         },
       });

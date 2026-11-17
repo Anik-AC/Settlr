@@ -104,6 +104,7 @@ export default function ExpenseForm() {
   const [taxMode, setTaxMode] = useState('included');
   const [taxValue, setTaxValue] = useState('13');
   const [tip, setTip] = useState('');
+  const [fees, setFees] = useState('');
   const [discount, setDiscount] = useState('');
   const [discountSplit, setDiscountSplit] = useState('proportional');
   const [extrasSplit, setExtrasSplit] = useState('proportional');
@@ -152,6 +153,7 @@ export default function ExpenseForm() {
           setTaxMode(e.taxMode);
           setTaxValue(e.taxMode === 'amount' ? centsToInput(Math.round(e.taxValue)) : e.taxMode === 'percent' ? String(e.taxValue) : '13');
           setTip(centsToInput(e.tip || 0));
+          setFees(centsToInput(e.fees || 0));
           setDiscount(centsToInput(e.discount || 0));
           setDiscountSplit(e.discountSplit || 'proportional');
           setExtrasSplit(e.extrasSplit || 'proportional');
@@ -194,6 +196,7 @@ export default function ExpenseForm() {
             setTaxMode('included');
           }
           setTip(centsToInput(d.tip));
+          setFees(centsToInput(d.fees || 0));
           setDiscount(centsToInput(d.discount));
           setExtrasSplit('equal');
           setDiscountSplit('proportional');
@@ -277,12 +280,13 @@ export default function ExpenseForm() {
       amount: toCents(amount),
       tax: { mode: taxMode, value: taxMode === 'amount' ? toCents(taxValue) : Number(taxValue) || 0 },
       tip: toCents(tip),
+      fees: toCents(fees),
       extrasSplit,
       discount: toCents(discount),
       discountSplit,
       split,
     };
-  }, [method, selected, items, values, pool, amount, taxMode, taxValue, tip, extrasSplit, discount, discountSplit]);
+  }, [method, selected, items, values, pool, amount, taxMode, taxValue, tip, fees, extrasSplit, discount, discountSplit]);
 
   const result = useMemo(() => computeSplit(splitInput), [splitInput]);
   const total = result.total;
@@ -351,6 +355,7 @@ export default function ExpenseForm() {
       setTaxMode('included');
     }
     setTip(centsToInput(r.tip));
+    setFees(centsToInput(r.fees || 0));
     setDiscount(centsToInput(r.discount || 0));
     setDiscountSplit('proportional'); // a coupon comes off each person's share in proportion to what they had
     setExtrasSplit('equal'); // scanned bills: tax + tip split evenly between everyone on the bill
@@ -507,7 +512,7 @@ export default function ExpenseForm() {
           <div className="scan-body">
             <strong className="row-flex gap-8"><Bot size={18} /> Read by your AI assistant</strong>
             <span className="muted">
-              {draft.items.length} item{draft.items.length === 1 ? '' : 's'}{draft.billTotal ? ` · bill total ${formatCAD(draft.billTotal)}` : ''}. Check the items, tap who had each one, then save. Tax &amp; tip are split equally.
+              {draft.items.length} item{draft.items.length === 1 ? '' : 's'}{draft.billTotal ? ` · bill total ${formatCAD(draft.billTotal)}` : ''}. Check the items, tap who had each one, then save. Tax, tip &amp; fees are split equally.
             </span>
           </div>
           {draft.warnings.map((w) => (
@@ -531,7 +536,7 @@ export default function ExpenseForm() {
             ) : scan.status === 'done' ? (
               <>
                 <strong>{scan.count} item{scan.count === 1 ? '' : 's'} from {photos.length} photo{photos.length === 1 ? '' : 's'}</strong>
-                <span className="muted">Tap people on each item below. Tax & tip are split equally. Bill didn’t fit? Add another page.</span>
+                <span className="muted">Tap people on each item below. Tax, tip &amp; fees are split equally. Bill didn’t fit? Add another page.</span>
               </>
             ) : (
               <>
@@ -586,7 +591,7 @@ export default function ExpenseForm() {
         </label>
         <p className="muted" style={{ textAlign: 'center', fontSize: 13, marginBottom: 14 }}>
           {method === 'itemized' ? 'Subtotal from items' : taxMode === 'included' ? 'CAD · tax included' : 'CAD · before tax'}
-          {result.tax + result.tip + result.discount > 0 && <> · <strong style={{ color: 'var(--text)' }}>{formatCAD(total)}</strong> with {[result.tax > 0 && 'tax', result.tip > 0 && 'tip', result.discount > 0 && 'discount'].filter(Boolean).join(' & ')}</>}
+          {result.tax + result.tip + result.fees + result.discount > 0 && <> · <strong style={{ color: 'var(--text)' }}>{formatCAD(total)}</strong> with {[result.tax > 0 && 'tax', result.tip > 0 && 'tip', result.fees > 0 && 'fees', result.discount > 0 && 'discount'].filter(Boolean).join(' & ')}</>}
         </p>
         <input className="desc-input" placeholder="What was it for?" value={description} onChange={(e) => onDescription(e.target.value)} aria-label="Description" maxLength={140} />
         <div className="chips" style={{ marginTop: 14 }} role="radiogroup" aria-label="Category">
@@ -695,8 +700,8 @@ export default function ExpenseForm() {
       {/* ---------- Tax ---------- */}
       <div className="form-block">
         <div className="form-block-head">
-          <h3><Receipt /> Tax & tip</h3>
-          {result.tax + result.tip > 0 && <span className="muted num" style={{ fontSize: 13 }}>+{formatCAD(result.tax + result.tip)}</span>}
+          <h3><Receipt /> Tax, tip &amp; fees</h3>
+          {result.tax + result.tip + result.fees > 0 && <span className="muted num" style={{ fontSize: 13 }}>+{formatCAD(result.tax + result.tip + result.fees)}</span>}
         </div>
         <Segmented value={taxMode} onChange={setTaxMode} label="Tax" options={TAX_OPTIONS} />
         {taxMode === 'percent' && (
@@ -732,22 +737,30 @@ export default function ExpenseForm() {
             <input className="input sm num has-prefix" inputMode="decimal" value={tip} onChange={(e) => setTip(moneyInput(e.target.value))} aria-label="Tip amount" placeholder="0.00" />
           </div>
         </div>
-        {(result.tax > 0 || result.tip > 0) && (
+        <div className="tip-row">
+          <span className="field-label" style={{ margin: 0 }}>Fees</span>
+          <span className="muted" style={{ fontSize: 12.5 }}>Service, delivery, small-order</span>
+          <div className="input-wrap">
+            <span className="prefix">$</span>
+            <input className="input sm num has-prefix" inputMode="decimal" value={fees} onChange={(e) => setFees(moneyInput(e.target.value))} aria-label="Fees amount" placeholder="0.00" />
+          </div>
+        </div>
+        {(result.tax > 0 || result.tip > 0 || result.fees > 0) && (
           <div className="row-flex gap-8" style={{ marginTop: 12, justifyContent: 'space-between' }}>
-            <span className="field-label" style={{ margin: 0 }}>Split {[result.tax > 0 && 'tax', result.tip > 0 && 'tip'].filter(Boolean).join(' & ')}</span>
+            <span className="field-label" style={{ margin: 0 }}>Split {[result.tax > 0 && 'tax', result.tip > 0 && 'tip', result.fees > 0 && 'fees'].filter(Boolean).join(' & ')}</span>
             <div style={{ width: 210 }}>
               <Segmented value={extrasSplit} onChange={setExtrasSplit} label="How to split tax and tip" options={EXTRAS_OPTIONS} />
             </div>
           </div>
         )}
         <p className="field-hint" style={{ marginTop: 10 }}>
-          {taxMode === 'included' && !result.tip
+          {taxMode === 'included' && !result.tip && !result.fees
             ? 'The amount above already includes tax.'
             : extrasSplit === 'equal'
               ? `Split equally between everyone on the bill${method === 'itemized' && taxMode !== 'included' ? ' (tax only between people with taxable items)' : ''}.`
               : method === 'itemized'
-                ? 'Tax and tip follow what each person had (tax only on taxable items).'
-                : 'Tax and tip are shared in proportion to each person’s portion.'}
+                ? 'Tax, tip and fees follow what each person had (tax only on taxable items).'
+                : 'Tax, tip and fees are shared in proportion to each person’s portion.'}
         </p>
         <div className="tip-row">
           <span className="field-label row-flex gap-4" style={{ margin: 0 }}><Tag size={14} /> Discount</span>
@@ -934,8 +947,8 @@ export default function ExpenseForm() {
                 <div className="who">
                   <strong>{nm(s.userId)}</strong>
                   <span className="num">
-                    {s.tax || s.tip || s.discount
-                      ? [formatCAD(s.base), s.tax && `+ ${formatCAD(s.tax)} tax`, s.tip && `+ ${formatCAD(s.tip)} tip`, s.discount && `− ${formatCAD(s.discount)} off`].filter(Boolean).join(' ')
+                    {s.tax || s.tip || s.fees || s.discount
+                      ? [formatCAD(s.base), s.tax && `+ ${formatCAD(s.tax)} tax`, s.tip && `+ ${formatCAD(s.tip)} tip`, s.fees && `+ ${formatCAD(s.fees)} fees`, s.discount && `− ${formatCAD(s.discount)} off`].filter(Boolean).join(' ')
                       : `share ${formatCAD(s.amount)}`}
                     {paid ? ` · paid ${formatCAD(paid)}` : ''}
                   </span>

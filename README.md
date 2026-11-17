@@ -35,7 +35,7 @@ npm test                 # money-engine unit tests
 - **Coupons & quantities:** a bill-level coupon/promo is read as a discount and split *By portion* (or *Equally*); out-of-stock/refunded lines are left out; an item like "4 × Coffee" can be split into 4 separate items so each goes to different people.
 - **AI assistant access (MCP):** each person can create an API key (Account page) and connect Claude or another MCP client to `/api/mcp` to add expenses, check balances and record payments. Share a bill photo with Claude and it lands in **Activity → To review**, where you assign items and save. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#5c-ai-assistant-access-mcp).
 - **Finance tracker connection:** *Account → Connected apps* creates a read-only token that lets a personal finance tracker sync what you spent (your share of each expense, by category and bill date). See [docs/FINANCE-API.md](docs/FINANCE-API.md).
-- **Tip:** add a tip in $ or with the 15/18/20% buttons. Tax and tip can be split *Equally* or *By portion*.
+- **Tip & fees:** add a tip in $ or with the 15/18/20% buttons, and order **Fees** (service, delivery, small-order; scanned DoorDash/Uber Eats fees land here, not as items). Tax, tip and fees can be split *Equally* or *By portion*.
 - **Tax:** *Included*, *Add %* (GST 5% / HST 13% / HST 15% presets or a custom rate), or *Add $*. In itemized mode tax only applies to items marked taxable, since basic groceries are zero-rated.
 - **Multiple payers:** several people can each pay part of one bill.
 - **Payments:** record cash, Interac e-Transfer, or other settle-ups, inside a group or outside one.
