@@ -196,8 +196,11 @@ Each person can let their own AI assistant add expenses and check balances for t
    `Authorization: Bearer stl_…`. Choose "No sign in".
    Claude Code: `claude mcp add --transport http settlr https://settlr.onixpace.com/api/mcp --header "Authorization: Bearer stl_…"`
 3. Ask things like "add $24.50 pizza to Wow-CN-Tower, split equally, I paid" or "what do I owe?".
+4. **Bill photos:** attach a receipt or DoorDash screenshots in Claude and say "add this bill to Settlr".
+   Claude reads it and saves a draft; in Settlr it appears under **Activity → To review** (with a badge
+   and a Home banner). Open it, tap who had each item, and save. Drafts don't affect balances until saved.
 
-Tools: `list_groups`, `add_expense` (equal or itemized, tax/tip/discount), `list_expenses`,
+Tools: `list_groups`, `add_expense` (equal or itemized, tax/tip/discount), `add_bill_for_review`, `list_expenses`,
 `get_balances`, `record_payment`, `delete_expense` (only entries you added). A key acts as its
 owner with the same permissions as the app; it can't create keys or change passwords. Revoke a
 key anytime from the same page. Any MCP-capable assistant works, and the REST API (`/api/*`)

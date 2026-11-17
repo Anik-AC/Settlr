@@ -167,6 +167,20 @@ CREATE TABLE IF NOT EXISTS expense_splits (
   discount   INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (expense_id, user_id)
 );
+-- Bills an AI assistant read for someone, waiting for them to check and assign
+-- items in the app. Drafts never affect balances; saving one creates a real expense.
+CREATE TABLE IF NOT EXISTS expense_drafts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id),   -- whose review queue it is in
+  group_id    INTEGER REFERENCES groups(id),
+  description TEXT NOT NULL,
+  date        TEXT NOT NULL,
+  data        TEXT NOT NULL,                           -- JSON: items, tax, tip, discount, paidBy, warnings…
+  source      TEXT NOT NULL DEFAULT 'assistant',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_drafts_user ON expense_drafts(user_id);
+
 -- Personal API keys (for AI assistants via MCP, or scripts). Only a SHA-256 hash is stored.
 CREATE TABLE IF NOT EXISTS api_tokens (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,4 +1,6 @@
-import { NavLink, Outlet, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, Link, useLocation } from 'react-router-dom';
+import { api } from '../lib/api.js';
 import { House, Users, UserRound, Activity, Plus, Settings, ArrowLeftRight } from 'lucide-react';
 import { useAuth } from '../lib/auth.jsx';
 import { Avatar } from './ui.jsx';
@@ -35,8 +37,24 @@ const NAV = [
   { to: '/activity', label: 'Activity', icon: Activity },
 ];
 
+/** How many AI-read bills are waiting for review (refreshed on navigation). */
+function usePendingReview() {
+  const { pathname } = useLocation();
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    api.get('/drafts').then((d) => alive && setCount(d.count)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [pathname]);
+  return count;
+}
+
 export default function AppShell() {
   const { user } = useAuth();
+  const pending = usePendingReview();
+  const badge = (to) => (to === '/activity' && pending > 0 ? <span className="nav-badge" aria-label={`${pending} to review`}>{pending}</span> : null);
   return (
     <div className="shell">
       <aside className="sidebar" aria-label="Main navigation">
@@ -49,6 +67,7 @@ export default function AppShell() {
         {NAV.map(({ to, label, icon: Icon, end }) => (
           <NavLink key={to} to={to} end={end} className={({ isActive }) => 'side-link' + (isActive ? ' active' : '')}>
             <Icon /> {label}
+            {badge(to)}
           </NavLink>
         ))}
         <NavLink to="/settle" className={({ isActive }) => 'side-link' + (isActive ? ' active' : '')}>
@@ -79,7 +98,10 @@ export default function AppShell() {
         </Link>
         {NAV.slice(2).map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-            <Icon />
+            <span style={{ position: 'relative', display: 'inline-flex' }}>
+              <Icon />
+              {badge(to)}
+            </span>
             <span>{label}</span>
           </NavLink>
         ))}

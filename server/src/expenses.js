@@ -199,3 +199,71 @@ export async function getExpense(id) {
 }
 
 export const describeAmount = formatCAD;
+
+// ---------------------------------------------------------------------------
+// Drafts: bills read by an AI assistant, waiting for review in the app.
+// ---------------------------------------------------------------------------
+export const MAX_DRAFTS = 50;
+
+export function draftDto(d) {
+  let data = {};
+  try {
+    data = JSON.parse(d.data || '{}');
+  } catch {
+    data = {};
+  }
+  const items = Array.isArray(data.items) ? data.items : [];
+  const itemsSum = items.reduce((s, i) => s + (i.amount || 0), 0);
+  return {
+    id: d.id,
+    groupId: d.group_id,
+    groupName: d.group_name || null,
+    description: d.description,
+    date: d.date,
+    source: d.source,
+    createdAt: d.created_at,
+    items,
+    tax: data.tax || 0,
+    tip: data.tip || 0,
+    discount: data.discount || 0,
+    billTotal: data.billTotal ?? null,
+    total: itemsSum + (data.tax || 0) + (data.tip || 0) - (data.discount || 0),
+    paidBy: data.paidBy || null,
+    category: data.category || null,
+    notes: data.notes || '',
+    warnings: Array.isArray(data.warnings) ? data.warnings : [],
+  };
+}
+
+export async function listDrafts(userId) {
+  const rows = await db.all(
+    `SELECT d.*, g.name AS group_name FROM expense_drafts d LEFT JOIN groups g ON g.id = d.group_id
+     WHERE d.user_id = ? ORDER BY d.id DESC`,
+    userId
+  );
+  return rows.map(draftDto);
+}
+
+export async function getDraft(id, userId) {
+  const d = await db.get(
+    `SELECT d.*, g.name AS group_name FROM expense_drafts d LEFT JOIN groups g ON g.id = d.group_id
+     WHERE d.id = ? AND d.user_id = ?`,
+    id, userId
+  );
+  return d ? draftDto(d) : null;
+}
+
+export async function createDraft(userId, { groupId, description, date, data, source = 'assistant' }) {
+  const { n } = await db.get('SELECT COUNT(*) AS n FROM expense_drafts WHERE user_id = ?', userId);
+  if (n >= MAX_DRAFTS) throw new HttpError(400, `There are already ${MAX_DRAFTS} bills waiting for review. Review or discard some in the app first.`);
+  const info = await db.run(
+    'INSERT INTO expense_drafts (user_id, group_id, description, date, data, source) VALUES (?, ?, ?, ?, ?, ?)',
+    userId, groupId || null, String(description).slice(0, 140), date, JSON.stringify(data), source
+  );
+  return info.lastInsertRowid;
+}
+
+export async function deleteDraft(id, userId) {
+  const info = await db.run('DELETE FROM expense_drafts WHERE id = ? AND user_id = ?', id, userId);
+  return info.changes > 0;
+}

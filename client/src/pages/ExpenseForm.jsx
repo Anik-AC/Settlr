@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   X, Users, Wallet, Percent, Receipt, Plus, Trash2, AlertCircle, Equal, DollarSign, PieChart, ListChecks, Divide, StickyNote, Sparkles,
-  Camera, ImagePlus, ScanLine, Tag, SplitSquareHorizontal,
+  Camera, ImagePlus, ScanLine, Tag, SplitSquareHorizontal, Bot,
 } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { prepareReceiptImage, scanReceipt } from '../lib/receipt.js';
@@ -110,6 +110,8 @@ export default function ExpenseForm() {
   // Bill scanning: a bill can span several photos / screenshots, read together in one go.
   const [photos, setPhotos] = useState([]); // [{ id, dataUrl, preview }]
   const [scan, setScan] = useState({ status: 'idle', error: '', warnings: [], count: 0 });
+  // A bill an AI assistant read for this user, opened from "To review".
+  const [draft, setDraft] = useState(null);
   const scanSeq = useRef(0);
   const photosRef = useRef(photos);
   photosRef.current = photos;
@@ -170,6 +172,36 @@ export default function ExpenseForm() {
           } else {
             setPayerMode('multiple');
             setPayerAmounts(Object.fromEntries(e.payers.map((p) => [p.userId, centsToInput(p.amount)])));
+          }
+        } else if (Number(params.get('draft'))) {
+          const { draft: d } = await api.get(`/drafts/${Number(params.get('draft'))}`);
+          if (!alive) return;
+          const grp = g.groups.find((x) => x.id === d.groupId) || g.groups[0] || null;
+          const poolIds = grp ? [me, ...grp.memberIds.filter((x) => x !== me)] : [me];
+          setDraft(d);
+          setGroupId(grp ? grp.id : null);
+          setDescription(d.description);
+          categoryTouched.current = true;
+          setCategory(d.category || guessCategory(d.description) || (d.tip > 0 ? 'dining' : 'general'));
+          setDate(d.date);
+          setMethod('itemized');
+          // Everyone shares each item to start; the reviewer narrows it down.
+          setItems(d.items.map((it) => ({ ...newItem(poolIds), name: it.name, amount: centsToInput(it.amount) })));
+          if (d.tax > 0) {
+            setTaxMode('amount');
+            setTaxValue(centsToInput(d.tax));
+          } else {
+            setTaxMode('included');
+          }
+          setTip(centsToInput(d.tip));
+          setDiscount(centsToInput(d.discount));
+          setExtrasSplit('equal');
+          setDiscountSplit('proportional');
+          setPayerMode('single');
+          setPayerId(poolIds.includes(d.paidBy) ? d.paidBy : me);
+          if (d.notes) {
+            setNotes(d.notes);
+            setShowNotes(true);
           }
         } else {
           const qGroup = Number(params.get('groupId')) || null;
@@ -407,6 +439,7 @@ export default function ExpenseForm() {
       notes,
       ...splitInput,
       payers,
+      draftId: draft?.id,
     };
     try {
       const d = editId ? await api.put(`/expenses/${editId}`, body) : await api.post('/expenses', body);
@@ -421,6 +454,16 @@ export default function ExpenseForm() {
   };
 
   const close = () => (location.key !== 'default' ? navigate(-1) : navigate('/'));
+
+  const discardDraft = async () => {
+    try {
+      await api.del(`/drafts/${draft.id}`);
+      toast('Bill discarded');
+      navigate('/activity?tab=review', { replace: true });
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
 
   // ---- Render ------------------------------------------------------------
   if (boot.loading) {
@@ -452,14 +495,30 @@ export default function ExpenseForm() {
     <div className="sheet-page">
       <div className="sheet-bar">
         <button className="icon-btn" onClick={close} aria-label="Close"><X /></button>
-        <span className="title">{editId ? 'Edit expense' : 'Add expense'}</span>
+        <span className="title">{editId ? 'Edit expense' : draft ? 'Review bill' : 'Add expense'}</span>
         <button className="btn btn-primary btn-sm end" onClick={save} disabled={saving}>
           {saving ? <span className="spinner" /> : 'Save'}
         </button>
       </div>
 
+      {/* ---------- Bill from an AI assistant, waiting for review ---------- */}
+      {draft && (
+        <div className="scan-card">
+          <div className="scan-body">
+            <strong className="row-flex gap-8"><Bot size={18} /> Read by your AI assistant</strong>
+            <span className="muted">
+              {draft.items.length} item{draft.items.length === 1 ? '' : 's'}{draft.billTotal ? ` · bill total ${formatCAD(draft.billTotal)}` : ''}. Check the items, tap who had each one, then save. Tax &amp; tip are split equally.
+            </span>
+          </div>
+          {draft.warnings.map((w) => (
+            <div key={w} className="callout info"><AlertCircle /> {w}</div>
+          ))}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={discardDraft}><Trash2 /> Discard this bill</button>
+        </div>
+      )}
+
       {/* ---------- Scan a bill ---------- */}
-      {!editId && (
+      {!editId && !draft && (
         <div className={cls('scan-card', scan.status === 'reading' && 'busy')}>
           <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={onPickImages} />
           <input ref={uploadInput} type="file" accept="image/*" multiple hidden onChange={onPickImages} />

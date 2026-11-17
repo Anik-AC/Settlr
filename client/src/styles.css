@@ -853,3 +853,17 @@ hr.soft { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .api-help ol { margin: 10px 0 2px; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
 .api-help code { font-family: var(--font-mono); font-size: 12.5px; background: var(--surface-3); padding: 1px 5px; border-radius: 6px; }
 .api-help .field { margin-top: 10px; }
+
+/* ---------- Bills to review (from AI assistants) ----------------------- */
+.review-banner {
+  display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 14px 16px; border-radius: 18px;
+  background: color-mix(in oklab, var(--lime) 14%, var(--surface)); border: 1px solid color-mix(in oklab, var(--lime) 40%, transparent);
+  color: var(--text);
+}
+.review-banner:active { transform: scale(0.99); }
+.nav-badge {
+  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--coral); color: #10110c;
+  font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
+}
+.nav-item .nav-badge { position: absolute; top: -6px; right: -10px; }
+.side-link .nav-badge { margin-left: auto; }

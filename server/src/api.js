@@ -6,7 +6,10 @@ import {
   loadExpenses, VISIBLE_SQL, INVOLVED_SQL, canView, serializeExpense, expenseUserIds,
   netBalances, pairwiseFor, groupSummary,
 } from './ledger.js';
-import { createExpense, updateExpense, getExpense, deleteExpenses, HttpError, CATEGORIES } from './expenses.js';
+import {
+  createExpense, updateExpense, getExpense, deleteExpenses, HttpError, CATEGORIES,
+  listDrafts, getDraft, deleteDraft,
+} from './expenses.js';
 
 export const api = Router();
 const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : NaN);
@@ -174,11 +177,12 @@ api.get('/dashboard', async (req, res) => {
   // Spending this month (your share of expenses).
   const now = new Date();
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const [people, mine, recent, monthRows] = await Promise.all([
+  const [people, mine, recent, monthRows, drafts] = await Promise.all([
     peopleBalances(me),
     myGroups(me),
     loadExpenses(VISIBLE_SQL, [me, me, me], { limit: 6 }),
     loadExpenses(`${INVOLVED_SQL} AND e.type = 'expense' AND substr(e.date, 1, 7) = ?`, [me, me, month]),
+    listDrafts(me),
   ]);
   const owed = people.filter((p) => p.balance > 0).reduce((a, p) => a + p.balance, 0);
   const owe = people.filter((p) => p.balance < 0).reduce((a, p) => a - p.balance, 0);
@@ -191,6 +195,7 @@ api.get('/dashboard', async (req, res) => {
   }
   await respondExpenses(res, recent, {
     totals: { owed, owe, net: owed - owe },
+    pendingReview: drafts.length,
     month: { key: month, share: monthShare, byCategory },
     balances: people,
     groups,
@@ -295,6 +300,26 @@ api.delete('/groups/:id/members/:userId', async (req, res) => {
 // Expenses & payments
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Drafts (bills an AI assistant read, waiting for review)
+// ---------------------------------------------------------------------------
+
+api.get('/drafts', async (req, res) => {
+  const drafts = await listDrafts(req.user.id);
+  res.json({ drafts, count: drafts.length });
+});
+
+api.get('/drafts/:id', async (req, res) => {
+  const draft = await getDraft(int(req.params.id), req.user.id);
+  if (!draft) throw new HttpError(404, 'That bill is no longer waiting for review.');
+  res.json({ draft });
+});
+
+api.delete('/drafts/:id', async (req, res) => {
+  if (!(await deleteDraft(int(req.params.id), req.user.id))) throw new HttpError(404, 'That bill is no longer waiting for review.');
+  res.json({ ok: true });
+});
+
 api.get('/meta', (_req, res) => res.json({ categories: CATEGORIES, currency: 'CAD' }));
 
 api.get('/expenses', async (req, res) => {
@@ -323,6 +348,8 @@ api.get('/expenses', async (req, res) => {
 
 api.post('/expenses', async (req, res) => {
   const id = await createExpense(req.body, req.user.id);
+  // Saving a reviewed draft clears it from the review queue.
+  if (req.body.draftId) await deleteDraft(int(req.body.draftId), req.user.id);
   const e = await getExpense(id);
   res.status(201).json({ expense: serializeExpense(e), people: await peopleMap(expenseUserIds([e])) });
 });

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import ReviewList from '../components/ReviewList.jsx';
 import { Search, Receipt } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { Empty, ErrorState, ListSkeleton, Segmented, TopBar } from '../components/ui.jsx';
@@ -7,7 +9,16 @@ import { ExpenseList } from '../components/ExpenseRow.jsx';
 const PAGE = 40;
 
 export default function Activity() {
-  const [type, setType] = useState('all');
+  const [params, setParams] = useSearchParams();
+  const [type, setTypeState] = useState(() => (params.get('tab') === 'review' ? 'review' : 'all'));
+  const [drafts, setDrafts] = useState(null);
+  const setType = (t) => {
+    setTypeState(t);
+    setParams(t === 'review' ? { tab: 'review' } : {}, { replace: true });
+  };
+  useEffect(() => {
+    api.get('/drafts').then((d) => setDrafts(d.drafts)).catch(() => setDrafts([]));
+  }, []);
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
   const [state, setState] = useState({ expenses: [], people: {}, hasMore: false, loading: true, error: null });
@@ -25,6 +36,7 @@ export default function Activity() {
   };
 
   useEffect(() => {
+    if (type === 'review') return undefined;
     let alive = true;
     setState((s) => ({ ...s, loading: true, error: null }));
     api
@@ -67,9 +79,12 @@ export default function Activity() {
             { id: 'all', label: 'All' },
             { id: 'expense', label: 'Expenses' },
             { id: 'payment', label: 'Payments' },
+            { id: 'review', label: drafts?.length ? `To review (${drafts.length})` : 'To review' },
           ]}
         />
       </div>
+      {type === 'review' ? (drafts ? <ReviewList drafts={drafts} /> : <ListSkeleton rows={3} />) : (
+      <>
       {state.error && <ErrorState error={state.error} />}
       {state.loading && !state.expenses.length && <ListSkeleton rows={6} />}
       {!state.loading && !state.error && !state.expenses.length && (
@@ -82,6 +97,8 @@ export default function Activity() {
         <button className="btn btn-secondary btn-block" style={{ marginTop: 16 }} onClick={more} disabled={state.loading}>
           {state.loading ? <span className="spinner" /> : 'Load more'}
         </button>
+      )}
+      </>
       )}
     </>
   );

@@ -4,7 +4,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import * as z from 'zod/v4';
 import { toCents, formatCAD, computeSplit } from '../../shared/split.js';
 import { getUserByUsername, groupMemberIds, peopleMap, loadExpenses, VISIBLE_SQL, canView } from './ledger.js';
-import { createExpense, getExpense, deleteExpenses, HttpError, CATEGORIES, PAYMENT_METHODS } from './expenses.js';
+import { createExpense, getExpense, deleteExpenses, createDraft, HttpError, CATEGORIES, PAYMENT_METHODS } from './expenses.js';
+import { normalizeReceipt } from './receipts.js';
 import { myGroups, peopleBalances } from './api.js';
 import { tx } from './db.js';
 
@@ -15,6 +16,7 @@ import { tx } from './db.js';
  * and permissions as the app.
  */
 
+const APP_URL = (process.env.SETTLR_APP_URL || 'https://settlr.onixpace.com').replace(/\/$/, '');
 const todayToronto = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto' }).format(new Date());
 const ok = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 const fail = (message) => ({ isError: true, content: [{ type: 'text', text: message }] });
@@ -177,6 +179,78 @@ function buildServer(me) {
       body.payers = [{ userId: payer, amount: total }];
       const id = await createExpense(body, me.id);
       return { added: await summarize(await getExpense(id)) };
+    })
+  );
+
+  server.registerTool(
+    'add_bill_for_review',
+    {
+      title: 'Add a bill for review',
+      description:
+        'Use this when the user shares a photo or screenshot of a bill/receipt (restaurant, groceries, DoorDash/Uber Eats order) and wants it in Settlr. ' +
+        'Read the image yourself and send every line item. Settlr saves it as a draft in the user\'s "To review" list; they then assign who had which items in the app and save it. Nothing is added to balances until they do. ' +
+        'Rules: `amount` is the LINE TOTAL charged (quantity already multiplied in) and `quantity` is the count on that line. ' +
+        'Subtract item-specific discounts from that item; put a coupon/promo on the whole order in `discount`. ' +
+        'Tax lines (GST/HST/PST…) go in `tax`, tips/gratuity/Dasher tip in `tip` — not as items. Delivery/service/bag fees ARE items (minus any fee discount, drop a fee that ends at 0). ' +
+        'Leave out out-of-stock/refunded items and payment lines. Send `bill_total` (the final amount charged) so Settlr can check the numbers. ' +
+        'If several images are parts of one bill, combine them and list overlapping lines only once. After calling, give the user the review link.',
+      inputSchema: {
+        merchant: z.string().min(1).max(140).describe('Store or restaurant name; becomes the expense description.'),
+        items: z
+          .array(z.object({
+            name: z.string().min(1).max(80),
+            amount: money.positive().describe('Line total in dollars.'),
+            quantity: z.number().int().min(1).max(99).optional(),
+          }))
+          .min(1)
+          .max(100),
+        tax: money.optional(),
+        tip: money.optional(),
+        discount: money.optional().describe('Order-level coupon/promo, positive dollars.'),
+        bill_total: money.optional().describe('Final amount charged on the bill, for checking.'),
+        date: dateSchema.optional().describe('Bill date (YYYY-MM-DD). Defaults to today.'),
+        group: z.string().optional().describe('Group name or id, if the user said which group (see list_groups).'),
+        paid_by: z.string().optional().describe('Username of who paid, if known. Defaults to the user.'),
+        category: z.enum(CATEGORIES).optional(),
+        notes: z.string().max(1000).optional(),
+      },
+    },
+    tool(async (a) => {
+      let g = a.group ? await findGroup(a.group) : null;
+      if (!g) {
+        // Only one group? Use it, so the review screen is ready to go.
+        const mine = await myGroups(me.id);
+        if (mine.length === 1) g = mine[0].g;
+      }
+      const memberIds = g ? await groupMemberIds(g.id) : null;
+      const paidBy = a.paid_by ? await findPerson(a.paid_by, memberIds) : me.id;
+      const r = normalizeReceipt({
+        merchant: a.merchant,
+        date: a.date,
+        items: a.items.map((it) => ({ name: it.name, quantity: it.quantity, price: it.amount })),
+        tax: a.tax, tip: a.tip, discount: a.discount, total: a.bill_total,
+      });
+      if (!r.items.length) throw new HttpError(400, 'No usable items. Each item needs a name and a positive amount.');
+      const date = a.date || todayToronto();
+      const id = await createDraft(me.id, {
+        groupId: g?.id || null,
+        description: a.merchant,
+        date,
+        data: {
+          items: r.items, tax: r.tax, tip: r.tip, discount: r.discount, billTotal: r.billTotal,
+          paidBy, category: a.category || null, notes: a.notes || '', warnings: r.warnings,
+        },
+      });
+      return {
+        saved_for_review: true,
+        draft_id: id,
+        review_url: `${APP_URL}/expenses/new?draft=${id}`,
+        group: g?.name || 'not set (the user picks it when reviewing)',
+        items: r.items.length,
+        total: formatCAD(r.total),
+        warnings: r.warnings,
+        next_step: 'Tell the user to open the review link (or Settlr → Activity → To review) to choose who had each item, then save.',
+      };
     })
   );
 

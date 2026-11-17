@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Plus, ArrowLeftRight, ChevronRight, Users, Receipt, ScanLine } from 'lucide-react';
+import { Plus, ArrowLeftRight, ChevronRight, Users, Receipt, ScanLine, Bot } from 'lucide-react';
 import { useAuth } from '../lib/auth.jsx';
 import { useApi } from '../lib/useApi.js';
 import { Avatar, AvatarStack, BalanceLabel, BigMoney, CategoryGlyph, Empty, ErrorState, Skeleton, ListSkeleton } from '../components/ui.jsx';
@@ -110,6 +110,17 @@ function Dashboard({ data }) {
           </div>
         </div>
       </section>
+
+      {data.pendingReview > 0 && (
+        <Link to="/activity?tab=review" className="review-banner">
+          <Bot size={20} />
+          <span style={{ flex: 1 }}>
+            <strong>{data.pendingReview} bill{data.pendingReview === 1 ? '' : 's'} to review</strong>
+            <span className="muted" style={{ display: 'block', fontSize: 13 }}>Your AI assistant read {data.pendingReview === 1 ? 'it' : 'them'}. Tap to choose who had what.</span>
+          </span>
+          <ChevronRight size={18} />
+        </Link>
+      )}
 
       <div className="quick-actions">
         <Link to="/expenses/new" className="btn btn-primary btn-lg">
