@@ -38,6 +38,10 @@ Authorization: Bearer stl_fin_…
 
 The token is read-only and can only call this API. It cannot see other people's shares or change anything.
 
+**Call this API from the tracker's server (backend or scheduled job), never from browser JavaScript.**
+Settlr doesn't send CORS headers, so browser requests from another site are blocked, and a token in
+the browser could be stolen. Keep the token in the server's database (encrypted) or a secret store.
+
 ## Endpoints
 
 ### `GET /me`
