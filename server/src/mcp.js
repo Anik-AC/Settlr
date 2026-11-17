@@ -36,7 +36,19 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('Date as YYY
 const money = z.number().nonnegative().max(1_000_000);
 
 function buildServer(me) {
-  const server = new McpServer({ name: 'settlr', version: '1.0.0' });
+  const server = new McpServer(
+    { name: 'settlr', version: '1.0.0' },
+    {
+      // Read by the assistant when it connects.
+      instructions:
+        'Settlr splits shared expenses between friends (amounts in CAD). ' +
+        'RULE: when the user shares a photo or screenshot of a bill, receipt or delivery order (DoorDash, Uber Eats, store or restaurant receipt) ' +
+        'and asks to add it — in any wording, e.g. "add this bill", "add this expense", "add this to the group" — call add_bill_for_review with every line item. ' +
+        'Do NOT use add_expense for receipts: the user assigns who had which item in the Settlr app (Activity → To review). ' +
+        'Only use add_expense for receipts if the user explicitly says to split the whole bill equally without reviewing items. ' +
+        'Use add_expense for simple typed expenses ("Lyft $12, split with Sam"). Call list_groups first if you need group names or usernames.',
+    }
+  );
 
   async function findGroup(ref) {
     const groups = (await myGroups(me.id)).map(({ g }) => g);
@@ -105,7 +117,7 @@ function buildServer(me) {
   server.registerTool(
     'add_expense',
     {
-      title: 'Add an expense',
+      title: 'Add a simple expense (no receipt)',
       description:
         'Adds a shared expense, as you. Amounts are in CAD dollars. ' +
         'If the user shares a photo or screenshot of a bill/receipt, use add_bill_for_review instead (so they can assign items in the app), unless they explicitly ask to split it equally right away. ' +
@@ -113,6 +125,13 @@ function buildServer(me) {
         'For a receipt where people had different things, give `items` instead of `amount` (each item lists who shared it). ' +
         'By default the amount already includes tax (tax_mode "included"). Prefer a group; for a non-group expense, list usernames in `split_between` and include yourself.',
       inputSchema: {
+        from_receipt: z
+          .boolean()
+          .describe('true if this expense comes from a photo or screenshot of a bill/receipt/delivery order in the conversation. Receipts must go through add_bill_for_review instead.'),
+        user_asked_equal_split: z
+          .boolean()
+          .optional()
+          .describe('Only for receipts: true if the user explicitly asked to split the whole bill equally and skip reviewing items.'),
         description: z.string().min(1).max(140).describe('What it was for, e.g. "Lyft" or "Costco run".'),
         group: z.string().optional().describe('Group name or id (see list_groups).'),
         amount: money.optional().describe('Total in dollars for an equal split, e.g. 47.38. Leave out when using items.'),
@@ -140,6 +159,13 @@ function buildServer(me) {
       },
     },
     tool(async (a) => {
+      if (a.from_receipt && !a.user_asked_equal_split) {
+        throw new HttpError(
+          400,
+          'Receipts go to review: call add_bill_for_review with every line item, tax, tip, fees, discount and bill_total from the image. ' +
+            'The user then assigns who had which item in Settlr (Activity → To review). Nothing was added.'
+        );
+      }
       const group = a.group ? await findGroup(a.group) : null;
       const memberIds = group ? await groupMemberIds(group.id) : null;
       if (!group && !a.split_between?.length && !a.items?.length) {
@@ -189,7 +215,7 @@ function buildServer(me) {
   server.registerTool(
     'add_bill_for_review',
     {
-      title: 'Add a bill for review',
+      title: 'Add a bill from a receipt photo (for review)',
       description:
         'Use this whenever the user shares a photo or screenshot of a bill/receipt (restaurant, groceries, DoorDash/Uber Eats order) and wants it in Settlr — prefer it over add_expense for bills. ' +
         'Read the image yourself and send every line item. Settlr saves it as a draft in the user\'s "To review" list; they then assign who had which items in the app and save it. Nothing is added to balances until they do. ' +
